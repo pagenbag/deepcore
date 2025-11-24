@@ -8,14 +8,14 @@ export enum UnitType {
 export enum BuildingType {
   DORMITORY = 'DORMITORY', // Increases max unit count
   WORKSHOP = 'WORKSHOP', // Unlocks better units
-  CRUSHER = 'CRUSHER', // Passive ore processing
+  CRUSHER = 'CRUSHER', // Passive ore processing (Auxiliary)
   REACTOR = 'REACTOR', // Global speed boost
 }
 
 export interface Entity {
   id: string;
   type: UnitType;
-  state: 'IDLE' | 'MOVING_TO_MINE' | 'MINING' | 'MOVING_TO_SURFACE' | 'MOVING_TO_REFINERY' | 'DEPOSITING';
+  state: 'IDLE' | 'MOVING_TO_MINE' | 'ENTERING_MINE' | 'MINING' | 'EXITING_MINE' | 'MOVING_TO_PILE' | 'DEPOSITING';
   position: { x: number; y: number; angle: number; radius: number };
   targetDepth: number;
   inventory: number;
@@ -35,16 +35,19 @@ export interface BuildingSlot {
 
 export interface GameState {
   credits: number;
-  surfaceOre: number; // Ore sitting at the mine entrance waiting for pickup
+  surfaceOre: number; // Ore sitting at the pile
   totalMined: number; // Used to calculate depth
-  mineDepth: number; // Visual and logic depth
+  mineDepth: number; // Visual and logic depth (meters)
+  maxPopulation: number;
   units: Entity[];
   buildings: BuildingSlot[];
   lastTick: number;
   rotation: number; // Visual rotation of the asteroid
+  targetRotation: number | null; // If set, asteroid auto-rotates to this angle
 }
 
 export const ASTEROID_RADIUS = 400; // Radius in pixels
 export const SURFACE_LEVEL = ASTEROID_RADIUS;
 export const MINE_ANGLE = 0; // Top center
-export const REFINERY_ANGLE = 25; // Degrees to the right
+export const PILE_ANGLE = 12; // Between Mine and Crusher
+export const CRUSHER_ANGLE = 25; // Where the Crusher/Refinery sits
