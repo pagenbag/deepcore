@@ -65,6 +65,7 @@ export interface BuildingSlot {
 
 export interface GameState {
   credits: number;
+  miningPermits: number; // Meta progression currency
   surfaceOre: number; // Ore sitting at the pile (Surface)
   looseOreInMine: number; // Ore sitting at the bottom of the mine (needs hauling)
   totalMined: number; // Used to calculate depth
@@ -80,6 +81,10 @@ export interface GameState {
   taxTimer: number; // Timestamp when next tax is due
   taxAmount: number; // Current tax amount required
   taxDue: boolean; // Is payment pending (blocking spending)
+  lastTaxPaid: number; // Timestamp of last payment for visuals
+
+  // Debug
+  globalMultiplier: number;
 }
 
 export const ASTEROID_RADIUS = 400; // Radius in pixels

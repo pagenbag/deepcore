@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { GameState, UnitType, BuildingType } from '../types';
 import { UNIT_STATS, BUILDING_COSTS, UNIT_UNLOCKS, COST_SCALING_FACTOR, BUILDING_UPGRADES } from '../constants';
-import { Coins, Mountain, Pickaxe, Users, X, Hammer, ArrowUpCircle, UserCog, Clock } from 'lucide-react';
+import { Coins, Mountain, Pickaxe, Users, X, Hammer, ArrowUpCircle, UserCog, Clock, ScrollText, Bolt } from 'lucide-react';
 
 interface OverlayProps {
   gameState: GameState;
@@ -12,9 +12,10 @@ interface OverlayProps {
   onCloseBuildMenu: () => void;
   onPurchaseUpgrade: (slotId: number, upgradeId: string) => void;
   onToggleWorkerSlot: (slotId: number, targetCount: number) => void;
+  onToggleDebug: () => void;
 }
 
-const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId, onBuild, onCloseBuildMenu, onPurchaseUpgrade, onToggleWorkerSlot }) => {
+const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId, onBuild, onCloseBuildMenu, onPurchaseUpgrade, onToggleWorkerSlot, onToggleDebug }) => {
   const [activeTab, setActiveTab] = useState<'RECRUIT' | 'UPGRADES' | 'WORKERS'>('RECRUIT');
 
   const formatNumber = (num: number) => Math.floor(num).toLocaleString();
@@ -70,6 +71,14 @@ const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId,
           </div>
 
           <div className="bg-slate-900/90 border border-slate-700 p-2 px-4 rounded-full flex items-center gap-3 shadow-xl backdrop-blur">
+            <ScrollText className="text-purple-400" size={18} />
+            <div>
+              <div className="text-[10px] text-gray-500 uppercase font-bold tracking-widest leading-none">Permits</div>
+              <div className="text-lg font-mono text-white leading-none">{gameState.miningPermits}</div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/90 border border-slate-700 p-2 px-4 rounded-full flex items-center gap-3 shadow-xl backdrop-blur">
             <Mountain className="text-orange-500" size={18} />
             <div>
               <div className="text-[10px] text-gray-500 uppercase font-bold tracking-widest leading-none">Surface / Mine</div>
@@ -97,6 +106,9 @@ const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId,
              </div>
            </div>
         </div>
+
+        {/* Debug Button */}
+        <button onClick={onToggleDebug} className="pointer-events-auto bg-slate-800 hover:bg-slate-700 border border-slate-600 text-xs px-2 py-1 rounded text-gray-400">DEBUG</button>
       </div>
 
       {/* Bottom Interaction Panel */}

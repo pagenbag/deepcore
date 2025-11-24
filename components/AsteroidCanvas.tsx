@@ -13,7 +13,7 @@ interface AsteroidCanvasProps {
 const DEG_TO_RAD = Math.PI / 180;
 
 const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation, onSelectSlot }) => {
-  const { rotation, units, buildings, surfaceOre, mineDepth, looseOreInMine, taxDue } = gameState;
+  const { rotation, units, buildings, surfaceOre, mineDepth, looseOreInMine, taxDue, lastTaxPaid } = gameState;
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [hoveredSlotId, setHoveredSlotId] = useState<number | null>(null);
@@ -108,6 +108,8 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
     setIsDragging(false);
     if(e.target instanceof Element) (e.target as Element).releasePointerCapture(e.pointerId);
   };
+
+  const showTaxPayEffect = (Date.now() - lastTaxPaid) < 2000;
 
   // --- RENDER ---
   
@@ -255,12 +257,12 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
     else if (slot.type === BuildingType.DORMITORY) {
         const pop = slot.occupants.length;
         const upgraded = slot.level > 1;
-        const scaleH = upgraded ? 'h-14' : 'h-10'; // Taller if upgraded
-        const scaleW = upgraded ? 'w-14' : 'w-12'; // Wider if upgraded
+        // Make scale upgrade more dramatic
+        const scale = upgraded ? 'scale-125' : 'scale-100'; 
         
         Visual = (
-            <div className="flex flex-col items-center relative -mb-1 animate-[fadeIn_0.5s_ease-out]">
-                 <div className={`${scaleW} ${scaleH} bg-blue-600 rounded-t-full border-4 border-blue-800 relative overflow-hidden shadow-lg transition-all`}>
+            <div className={`flex flex-col items-center relative -mb-1 animate-[fadeIn_0.5s_ease-out] transition-transform origin-bottom duration-500 ${scale}`}>
+                 <div className="w-12 h-10 bg-blue-600 rounded-t-full border-4 border-blue-800 relative overflow-hidden shadow-lg">
                      <div className="absolute top-2 left-3 w-3 h-3 bg-cyan-300 rounded-full blur-[1px] animate-pulse"></div>
                      <div className="absolute bottom-0 w-full h-2 bg-blue-900 flex justify-center gap-1 px-1">
                         {Array.from({length: 5}).map((_, i) => (
@@ -268,7 +270,7 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
                         ))}
                      </div>
                      {upgraded && (
-                         <div className="absolute top-0 right-0 w-4 h-4 bg-yellow-400 transform rotate-45 translate-x-2 -translate-y-2 border border-yellow-600"></div>
+                         <div className="absolute -top-1 -right-1 w-6 h-6 bg-yellow-400 transform rotate-45 border-2 border-yellow-600 z-10 shadow-sm"></div>
                      )}
                  </div>
                  <div className="w-14 h-2 bg-slate-700 rounded-sm mt-[-2px]"></div>
@@ -359,7 +361,7 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
                 </div>
                 <div className="text-[10px] text-gray-300 leading-tight">{info.desc}</div>
                 {slot.type === BuildingType.DORMITORY && (
-                    <div className="mt-2 text-[10px] text-green-400">Occupants: {slot.occupants.length}/5</div>
+                    <div className="mt-2 text-[10px] text-green-400">Occupants: {slot.occupants.length}/{slot.maxWorkers > 0 ? slot.maxWorkers : 5 /*visual only hack*/}</div>
                 )}
                 <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-gray-600" />
             </div>
@@ -395,10 +397,20 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
       
       {/* TAX ALERT */}
       {taxDue && (
-          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-40 animate-bounce">
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-40 animate-bounce pointer-events-none">
               <div className="bg-red-600 text-white font-bold px-4 py-2 rounded-lg shadow-xl border-2 border-red-400 flex items-center gap-2">
                   <AlertTriangle size={20} />
                   <span>TAX DUE! PAYING...</span>
+              </div>
+          </div>
+      )}
+      {showTaxPayEffect && (
+          <div className="absolute top-32 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
+              <div className="relative">
+                 <div className="absolute top-0 left-0 w-32 h-32 bg-yellow-400 rounded-full blur-xl opacity-20 animate-ping -translate-x-1/2 -translate-y-1/2"></div>
+                 {Array.from({length: 10}).map((_, i) => (
+                    <div key={i} className="absolute text-green-400 font-bold text-xl animate-[fall_1s_ease-out_forwards]" style={{ left: `${Math.random()*100 - 50}px`, top: `${Math.random()*50}px` }}>$</div>
+                 ))}
               </div>
           </div>
       )}
@@ -437,14 +449,21 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
                   </defs>
               </svg>
              
-             {/* Loose Ore at bottom of rendered shaft */}
+             {/* Loose Ore at bottom of rendered shaft (PILE) */}
              {looseOreInMine > 0 && (
                  <div 
-                    className="absolute left-1/2 -translate-x-1/2 w-full flex justify-center flex-wrap px-2"
-                    style={{ top: `${Math.min(300, 20 + mineDepth * 1.5) - 10}px` }}
+                    className="absolute left-1/2 -translate-x-1/2 w-full h-8"
+                    style={{ top: `${Math.min(300, 20 + mineDepth * 1.5) - 6}px` }}
                  >
-                     {Array.from({length: Math.min(15, Math.ceil(looseOreInMine / 5))}).map((_, i) => (
-                         <div key={i} className="w-1.5 h-1.5 bg-yellow-200 rounded-full m-[1px] shadow-sm"></div>
+                     {Array.from({length: Math.min(20, Math.ceil(looseOreInMine / 5))}).map((_, i) => (
+                         <div 
+                            key={i} 
+                            className="absolute w-1.5 h-1.5 bg-yellow-200 rounded-full shadow-sm"
+                            style={{ 
+                                left: `${50 + (Math.sin(i * 123) * 40)}%`, // Random-ish distribution around center
+                                top: `${Math.abs(Math.cos(i * 321) * 5)}px`
+                            }}
+                        ></div>
                      ))}
                  </div>
              )}

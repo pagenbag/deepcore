@@ -9,6 +9,7 @@ const App: React.FC = () => {
   // Game State
   const [gameState, setGameState] = useState<GameState>({
     credits: 10000,
+    miningPermits: 0,
     surfaceOre: 0,
     looseOreInMine: 0,
     totalMined: 0,
@@ -21,10 +22,13 @@ const App: React.FC = () => {
     targetRotation: null,
     taxTimer: Date.now() + TAX_INTERVAL,
     taxAmount: TAX_INITIAL_AMOUNT,
-    taxDue: false
+    taxDue: false,
+    lastTaxPaid: 0,
+    globalMultiplier: 1
   });
 
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+  const [showDebug, setShowDebug] = useState(false);
 
   // Helper to create IDs
   const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -34,6 +38,18 @@ const App: React.FC = () => {
       const count = currentUnits.filter(u => u.type === type).length;
       const base = UNIT_STATS[type].cost;
       return Math.floor(base * Math.pow(COST_SCALING_FACTOR, count));
+  };
+
+  // --- Helper: Get Building Capacity ---
+  const getHabitatCapacity = (b: BuildingSlot) => {
+      let cap = POPULATION_PER_HABITAT;
+      if (b.upgrades) {
+          b.upgrades.forEach(uId => {
+              const upg = BUILDING_UPGRADES[BuildingType.DORMITORY].find(x => x.id === uId);
+              if (upg?.effect?.maxPopAdd) cap += upg.effect.maxPopAdd;
+          });
+      }
+      return cap;
   };
 
   // --- Game Logic ---
@@ -57,12 +73,12 @@ const App: React.FC = () => {
         spawnAngle = workshop.angle;
     } else {
         // Miners/Carriers need a Habitat
-        // Find first habitat with < 5 occupants
-        const availableHabitat = gameState.buildings.find(b => 
-            b.type === BuildingType.DORMITORY && 
-            b.status === 'COMPLETED' && 
-            b.occupants.length < POPULATION_PER_HABITAT
-        );
+        // Find first habitat with space
+        const availableHabitat = gameState.buildings.find(b => {
+            if (b.type !== BuildingType.DORMITORY || b.status !== 'COMPLETED') return false;
+            const capacity = getHabitatCapacity(b);
+            return b.occupants.length < capacity;
+        });
 
         if (!availableHabitat) return; // No room
         
@@ -198,6 +214,15 @@ const App: React.FC = () => {
       });
   };
 
+  // --- Debug Tools ---
+  const debugAddMoney = () => {
+      setGameState(p => ({ ...p, credits: p.credits + 1000 }));
+  };
+
+  const debugToggleMultiplier = () => {
+      setGameState(p => ({ ...p, globalMultiplier: p.globalMultiplier >= 8 ? 1 : p.globalMultiplier * 2 }));
+  };
+
   const handleSelectSlot = (slotId: number) => {
       setSelectedSlot(slotId);
       const slot = gameState.buildings.find(b => b.id === slotId);
@@ -223,6 +248,7 @@ const App: React.FC = () => {
     setGameState(prev => {
       const now = Date.now();
       const dt = Math.min((now - prev.lastTick) / 1000, 0.1); 
+      const multiplier = prev.globalMultiplier;
       
       let newCredits = prev.credits;
       let newSurfaceOre = prev.surfaceOre;
@@ -233,6 +259,8 @@ const App: React.FC = () => {
       let newTaxTimer = prev.taxTimer;
       let newTaxAmount = prev.taxAmount;
       let newTaxDue = prev.taxDue;
+      let newLastTaxPaid = prev.lastTaxPaid;
+      let newPermits = prev.miningPermits;
 
       // Tax Logic
       if (!newTaxDue) {
@@ -246,6 +274,8 @@ const App: React.FC = () => {
               newTaxDue = false;
               newTaxAmount = Math.floor(newTaxAmount * TAX_SCALE);
               newTaxTimer = now + TAX_INTERVAL;
+              newLastTaxPaid = now;
+              newPermits += 1;
           }
       }
 
@@ -264,20 +294,15 @@ const App: React.FC = () => {
       const dorms = newBuildings.filter(b => b.type === BuildingType.DORMITORY && b.status === 'COMPLETED');
       let calculatedMaxPop = BASE_POPULATION;
       dorms.forEach(d => {
-          calculatedMaxPop += POPULATION_PER_HABITAT;
-          // Check upgrades for extra pop
-          if (d.upgrades) {
-             d.upgrades.forEach(uId => {
-                 const upg = BUILDING_UPGRADES[BuildingType.DORMITORY].find(x => x.id === uId);
-                 if (upg?.effect?.maxPopAdd) calculatedMaxPop += upg.effect.maxPopAdd;
-             });
-          }
+          calculatedMaxPop += getHabitatCapacity(d);
       });
 
       // Helper: Movement
       const moveUnit = (u: Entity, targetAngle: number, targetRadius: number, speedMult = 1) => {
          let arrivedAngle = false;
          let arrivedRadius = false;
+
+         const effectiveSpeed = u.speed * multiplier;
 
          // Angle
          let diff = targetAngle - u.position.angle;
@@ -286,7 +311,7 @@ const App: React.FC = () => {
          if (Math.abs(diff) < 0.5) {
              arrivedAngle = true;
          } else {
-             u.position.angle += (diff > 0 ? 1 : -1) * u.speed * speedMult * 15 * dt;
+             u.position.angle += (diff > 0 ? 1 : -1) * effectiveSpeed * speedMult * 15 * dt;
          }
 
          // Radius
@@ -294,7 +319,7 @@ const App: React.FC = () => {
          if (Math.abs(radDiff) < 2) {
              arrivedRadius = true;
          } else {
-             u.position.radius += (radDiff > 0 ? 1 : -1) * u.speed * speedMult * 30 * dt;
+             u.position.radius += (radDiff > 0 ? 1 : -1) * effectiveSpeed * speedMult * 30 * dt;
          }
 
          return arrivedAngle && arrivedRadius;
@@ -396,7 +421,7 @@ const App: React.FC = () => {
              // If Operating, generate ore
              // Note: State was synced in pre-process, so this is current
              if (u.state === 'OPERATING_DRILL') {
-                 const produced = DRILL_PRODUCTION_RATE * dt;
+                 const produced = DRILL_PRODUCTION_RATE * multiplier * dt;
                  newLooseOreInMine += produced;
                  newTotalMined += produced;
                  newDepth = Math.floor(newTotalMined / 100);
@@ -414,14 +439,25 @@ const App: React.FC = () => {
 
           // Critical Energy Logic
           if (u.energy <= 0 && u.state !== 'CHARGING' && u.state !== 'MOVING_TO_HOME') {
-              // Drop everything
-              u.carryingId = null; 
+              // DROP EVERYTHING IMMEDIATELY
               
-              // Drop construction job
+              // 1. Drop Tool (Drill)
+              if (u.carryingId) {
+                  // We need to mutate the actual drill in the array to ensure it drops NOW
+                  const drill = preProcessedUnits.find(d => d.id === u.carryingId);
+                  if (drill) {
+                      drill.carriedBy = null;
+                      drill.state = 'IDLE';
+                      drill.position = { ...u.position }; // Drop where we stand
+                  }
+                  u.carryingId = null;
+              }
+              
+              // 2. Drop Construction Job
               const job = newBuildings.find(b => b.assignedUnitId === u.id);
               if (job) job.assignedUnitId = null;
 
-              // Drop Building Work
+              // 3. Drop Building Work
               if (u.workingAtBuildingId !== null) {
                   const b = newBuildings.find(bd => bd.id === u.workingAtBuildingId);
                   if (b) {
@@ -481,7 +517,7 @@ const App: React.FC = () => {
                   if (!buildJob) {
                       u.state = 'IDLE';
                   } else {
-                      buildJob.constructionProgress += (BUILD_SPEED_BASE * u.miningPower) * dt;
+                      buildJob.constructionProgress += (BUILD_SPEED_BASE * u.miningPower * multiplier) * dt;
                       if (buildJob.constructionProgress >= 1) {
                           buildJob.constructionProgress = 1;
                           buildJob.status = 'COMPLETED';
@@ -558,7 +594,8 @@ const App: React.FC = () => {
 
               case 'MINING': 
                   const toughness = 1 + (newDepth * 0.05); 
-                  u.progress += (u.miningPower / toughness) * dt;
+                  const pwr = u.miningPower * multiplier;
+                  u.progress += (pwr / toughness) * dt;
                   if (u.progress >= 1) {
                       u.inventory = u.maxCapacity;
                       newTotalMined += 1; 
@@ -586,7 +623,7 @@ const App: React.FC = () => {
                   break;
 
               case 'DEPOSITING':
-                  u.progress += dt * 5;
+                  u.progress += dt * 5 * multiplier;
                   if (u.progress >= 1) {
                       newSurfaceOre += u.inventory;
                       u.inventory = 0;
@@ -603,8 +640,6 @@ const App: React.FC = () => {
                        const isNear = moveUnit(u, targetDrill.position.angle, targetDrill.position.radius);
                        if (isNear) {
                            u.carryingId = targetDrill.id;
-                           // Note: We don't set targetDrill.carriedBy here because we can't mutate other units in map.
-                           // The 'syncedUnits' step at start of next tick will handle the handshake.
                            u.state = 'CARRYING_DRILL_TO_MINE'; 
                        }
                    }
@@ -638,6 +673,9 @@ const App: React.FC = () => {
               });
           });
 
+          // Apply global multiplier to crush rate
+          totalBonus *= multiplier;
+
           const extraCrush = Math.min(newSurfaceOre, totalBonus * dt);
           newSurfaceOre -= extraCrush;
           newCredits += extraCrush * ORE_VALUE;
@@ -646,6 +684,7 @@ const App: React.FC = () => {
       return {
         ...prev,
         credits: newCredits,
+        miningPermits: newPermits,
         surfaceOre: Math.max(0, newSurfaceOre),
         looseOreInMine: Math.max(0, newLooseOreInMine),
         totalMined: newTotalMined,
@@ -657,7 +696,8 @@ const App: React.FC = () => {
         rotation: newRotation,
         taxTimer: newTaxTimer,
         taxAmount: newTaxAmount,
-        taxDue: newTaxDue
+        taxDue: newTaxDue,
+        lastTaxPaid: newLastTaxPaid
       };
     });
 
@@ -691,7 +731,19 @@ const App: React.FC = () => {
         onCloseBuildMenu={() => setSelectedSlot(null)}
         onPurchaseUpgrade={purchaseUpgrade}
         onToggleWorkerSlot={toggleWorkerSlot}
+        onToggleDebug={() => setShowDebug(!showDebug)}
       />
+      {showDebug && (
+          <div className="absolute top-16 right-4 bg-slate-900 border border-slate-600 p-4 rounded-lg z-[100] shadow-xl">
+              <h3 className="text-white font-bold mb-2">DEBUG MENU</h3>
+              <div className="flex flex-col gap-2">
+                  <button onClick={debugAddMoney} className="bg-green-700 hover:bg-green-600 text-white px-3 py-1 rounded text-sm">Add $1000</button>
+                  <button onClick={debugToggleMultiplier} className="bg-purple-700 hover:bg-purple-600 text-white px-3 py-1 rounded text-sm">
+                      Multiplier: {gameState.globalMultiplier}x
+                  </button>
+              </div>
+          </div>
+      )}
     </div>
   );
 };
