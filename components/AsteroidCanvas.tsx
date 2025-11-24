@@ -1,4 +1,5 @@
 
+
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { GameState, ASTEROID_RADIUS, SURFACE_LEVEL, UnitType, BuildingType, PILE_ANGLE, CRUSHER_ANGLE, MINE_ANGLE } from '../types';
 import { RotateCw, RotateCcw, Settings, BatteryWarning } from 'lucide-react';
@@ -13,7 +14,7 @@ interface AsteroidCanvasProps {
 const DEG_TO_RAD = Math.PI / 180;
 
 const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation, onSelectSlot }) => {
-  const { rotation, units, buildings, surfaceOre, mineDepth } = gameState;
+  const { rotation, units, buildings, surfaceOre, mineDepth, looseOreInMine } = gameState;
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [hoveredSlotId, setHoveredSlotId] = useState<number | null>(null);
@@ -23,7 +24,6 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
   useEffect(() => { rotationRef.current = rotation; }, [rotation]);
 
   // --- MEMOIZED VISUALS ---
-
   const stars = useMemo(() => {
       const arr = [];
       for(let i=0; i<150; i++) {
@@ -40,22 +40,48 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
 
   const craters = useMemo(() => {
       const arr = [];
-      // Generate some random craters on the surface
       for(let i=0; i<12; i++) {
           const size = 20 + Math.random() * 40;
-          // Position relative to center of asteroid (0,0)
           const r = Math.random() * (ASTEROID_RADIUS - 50);
           const theta = Math.random() * Math.PI * 2;
-          arr.push({ 
-              x: Math.cos(theta) * r, 
-              y: Math.sin(theta) * r, 
-              size 
-          });
+          arr.push({ x: Math.cos(theta) * r, y: Math.sin(theta) * r, size });
       }
       return arr;
   }, []);
 
+  // Root-like Mine Path Generator
+  const minePath = useMemo(() => {
+      const segments = Math.max(2, Math.min(50, Math.ceil(mineDepth / 5)));
+      let d = `M 0 0 `;
+      const depthPx = Math.min(300, 20 + mineDepth * 1.5);
+      const segmentHeight = depthPx / segments;
+      
+      for(let i=1; i<=segments; i++) {
+          const xOffset = Math.sin(i * 0.5) * 5;
+          d += `L ${xOffset} ${i * segmentHeight} `;
+      }
+      // Widen at bottom
+      const lastX = Math.sin(segments * 0.5) * 5;
+      d += `L ${lastX - 10} ${depthPx} L ${lastX + 10} ${depthPx} L ${lastX} ${depthPx} `; 
+      
+      // Trace back up
+      for(let i=segments; i>=1; i--) {
+         const xOffset = Math.sin(i * 0.5) * 5;
+         d += `L ${xOffset + 8} ${i * segmentHeight} `;
+      }
+      d += `Z`;
+      
+      return d;
+  }, [mineDepth]);
+
   // --- HELPER ---
+  const normalizeAngle = (angle: number) => {
+    let a = angle % 360;
+    while (a > 180) a -= 360;
+    while (a <= -180) a += 360;
+    return a;
+  };
+
   const getPosition = (angleDeg: number, radius: number) => {
     const totalAngle = (angleDeg + rotation - 90) * DEG_TO_RAD; 
     return {
@@ -65,18 +91,21 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
     };
   };
 
+  const isVisible = (rot: number) => {
+      const norm = normalizeAngle(rot);
+      return norm > -100 && norm < 100;
+  };
+
   // --- DRAG LOGIC ---
   const handlePointerDown = (e: React.PointerEvent) => {
      if (e.target !== containerRef.current && (e.target as HTMLElement).tagName === "BUTTON") return; 
      setIsDragging(true);
      (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
-
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging) return;
     setRotation(prev => prev + e.movementX * 0.5);
   };
-
   const handlePointerUp = (e: React.PointerEvent) => {
     setIsDragging(false);
     if(e.target instanceof Element) (e.target as Element).releasePointerCapture(e.pointerId);
@@ -84,41 +113,86 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
 
   // --- RENDER ---
   
-  // Units
+  // Units (Z-Index 40)
   const renderedUnits = units.map((unit) => {
-    const pos = getPosition(unit.position.angle, unit.position.radius);
+    // If unit is drill and carried, we render it ON the carrier, but we can't hide it completely here because the carrier is rendered separately.
+    // However, logic update: we kept drill visible even if carried? No, usually cleaner to attach.
+    // But since carrier logic is generic, let's render drill at its current position.
+    // The App logic updates the Drill's position to match Carrier. So we just render it.
     
-    // Energy visualization: Desaturate as energy drops
+    const pos = getPosition(unit.position.angle, unit.position.radius);
+    const visible = isVisible(pos.rot);
+    
     const energyRatio = unit.energy / unit.maxEnergy;
     const saturation = Math.max(0, energyRatio * 100);
-    const brightness = 50 + (energyRatio * 50); // Dim slightly
+    const brightness = 50 + (energyRatio * 50);
 
     const filterStyle = { filter: `grayscale(${100 - saturation}%) brightness(${brightness}%)` };
     
     let size = 'w-3 h-3';
     let Shape = <div className="w-full h-full rounded-full bg-white" />;
-    
+    let zIndex = 40;
+
     if (unit.type === UnitType.MINER_BASIC) {
-        Shape = <div className="w-full h-full bg-yellow-400 border border-yellow-600 rounded-sm" />;
+        Shape = <div className="w-full h-full bg-yellow-400 border border-yellow-600 rounded-sm relative">
+            {unit.carryingId && (
+                 // Rendering the drill logic handles the drill itself, but if we want a generic "carrying" indicator:
+                 <div className="absolute -top-3 -left-1 w-5 h-3 bg-transparent" />
+            )}
+        </div>;
     }
     if (unit.type === UnitType.MINER_DRILL) {
-        size = 'w-5 h-5';
-        Shape = <div className="w-full h-full bg-orange-600 border-2 border-orange-800 rounded-sm" />;
+        // Upside down triangle
+        size = 'w-5 h-6';
+        zIndex = unit.carriedBy ? 41 : 35; // Above carrier if carried
+        
+        // Offset Y if being carried to look like it's held
+        const transformY = unit.carriedBy ? '-translate-y-4' : '-translate-y-1/2';
+
+        Shape = (
+            <div className={`w-full h-full relative drop-shadow-lg ${unit.state === 'OPERATING_DRILL' ? 'animate-vibrate' : ''}`}>
+               {/* Body */}
+               <div 
+                 className="w-full h-full bg-orange-700 border-2 border-orange-900"
+                 style={{ clipPath: 'polygon(0 0, 100% 0, 50% 100%)' }}
+               ></div>
+               {/* Details */}
+               <div className="absolute top-0 left-1/2 -translate-x-1/2 w-4 h-1 bg-gray-400"></div>
+               {/* Spinning bit if operating */}
+               {unit.state === 'OPERATING_DRILL' && (
+                   <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-2 w-1 h-3 bg-white blur-[1px] animate-ping"></div>
+               )}
+            </div>
+        );
     }
     if (unit.type === UnitType.CARRIER_DRONE) {
         size = 'w-4 h-4';
         Shape = <div className="w-full h-full bg-cyan-400 rounded-full border border-cyan-200 shadow-[0_0_10px_cyan]" />;
     }
+    if (unit.type === UnitType.CARRIER_ROVER) {
+        size = 'w-4 h-3';
+        Shape = <div className="w-full h-full bg-blue-400 rounded-sm border border-blue-600" />;
+    }
+
+    let interactionAnim = "";
+    if (unit.state === 'BUILDING' || unit.state === 'WORKING_IN_BUILDING') interactionAnim = "animate-bounce"; 
+    
+    // Adjust visual position if it's a drill being carried to appear "held"
+    let renderTransform = `translate(-50%, -50%) rotate(${pos.rot}deg)`;
+    if (unit.type === UnitType.MINER_DRILL && unit.carriedBy) {
+         renderTransform = `translate(-50%, -150%) rotate(${pos.rot}deg)`; // Lift it up
+    }
 
     return (
       <div
         key={unit.id}
-        className={`absolute ${size} pointer-events-none will-change-transform`}
+        className={`absolute ${size} pointer-events-none will-change-transform transition-opacity duration-300 ${interactionAnim}`}
         style={{
           left: `calc(50% + ${pos.x}px)`,
           top: `calc(50% + ${pos.y}px)`,
-          transform: `translate(-50%, -50%) rotate(${pos.rot}deg)`,
-          zIndex: 20,
+          transform: renderTransform,
+          zIndex,
+          opacity: visible ? 1 : 0,
           ...filterStyle
         }}
       >
@@ -127,9 +201,12 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
            <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-2 h-2 bg-yellow-200 rounded-full shadow-sm animate-pulse" />
         )}
         {unit.state === 'CHARGING' && (
-           <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-green-400 animate-bounce">
-               <BatteryWarning size={10} />
-           </div>
+           <>
+              <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-green-400">
+                  <BatteryWarning size={10} />
+              </div>
+              <div className="absolute -top-6 left-full text-[8px] text-white animate-ping font-serif">Zzz</div>
+           </>
         )}
       </div>
     );
@@ -138,10 +215,7 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
   // Buildings
   const renderedBuildings = buildings.map((slot) => {
     const pos = getPosition(slot.angle, SURFACE_LEVEL); 
-    const isVisible = pos.rot > -95 && pos.rot < 95; // Cull hidden
-
-    if (!isVisible && !slot.unlocked) return null;
-
+    const visible = isVisible(pos.rot);
     const isHovered = hoveredSlotId === slot.id;
     let info = null;
     if (slot.type) info = BUILDING_COSTS[slot.type];
@@ -150,29 +224,48 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
     let Label = null;
 
     if (!slot.type) {
-        // Empty Slot
         Visual = (
             <div className="relative group flex flex-col items-center justify-end pb-1">
-                {/* Floating Plus */}
                 <div className="mb-2 w-8 h-8 rounded-full border-2 border-dashed border-white/30 flex items-center justify-center text-white/50 group-hover:text-white group-hover:border-white group-hover:bg-white/10 transition-all">
                     <span className="text-xl font-bold -mt-1">+</span>
                 </div>
-                {/* Foundation Marker */}
                 <div className="w-12 h-1 bg-white/20 shadow-[0_0_10px_rgba(255,255,255,0.2)]"></div>
             </div>
         );
-        // No Label for empty sites
-        Label = null; 
-    } 
-    else if (slot.type === BuildingType.DORMITORY) {
+    } else if (slot.status === 'PENDING' || slot.status === 'UNDER_CONSTRUCTION') {
+        const progress = slot.constructionProgress;
         Visual = (
             <div className="flex flex-col items-center relative -mb-1">
-                 {/* Habitat Dome */}
+                 <div className="w-12 h-12 relative flex items-end justify-center">
+                     <div 
+                        className="absolute bottom-0 w-full bg-slate-700/80 grayscale opacity-80 overflow-hidden transition-all duration-300 origin-bottom"
+                        style={{ height: '100%', transform: `scaleY(${0.1 + progress * 0.9})` }}
+                     >
+                         <div className="w-full h-full border-x-4 border-slate-500"></div>
+                     </div>
+                     <div className="absolute bottom-0 w-16 h-2 bg-yellow-400" 
+                          style={{ backgroundImage: 'linear-gradient(45deg, #000 25%, transparent 25%, transparent 50%, #000 50%, #000 75%, transparent 75%, transparent)', backgroundSize: '10px 10px' }} 
+                     />
+                 </div>
+                 <div className="w-14 h-2 bg-slate-800 mt-[-2px]"></div>
+            </div>
+        );
+        Label = <div className="bg-yellow-900/80 text-[9px] px-1.5 py-0.5 rounded text-yellow-200 border border-yellow-700 mt-1 shadow animate-pulse">
+            {slot.status === 'PENDING' ? 'PLANNED' : `${Math.floor(slot.constructionProgress * 100)}%`}
+        </div>;
+    }
+    else if (slot.type === BuildingType.DORMITORY) {
+        const pop = slot.occupants.length;
+        Visual = (
+            <div className="flex flex-col items-center relative -mb-1 animate-[fadeIn_0.5s_ease-out]">
                  <div className="w-12 h-10 bg-blue-600 rounded-t-full border-4 border-blue-800 relative overflow-hidden shadow-lg">
                      <div className="absolute top-2 left-3 w-3 h-3 bg-cyan-300 rounded-full blur-[1px] animate-pulse"></div>
-                     <div className="absolute bottom-0 w-full h-2 bg-blue-900"></div>
+                     <div className="absolute bottom-0 w-full h-2 bg-blue-900 flex justify-center gap-1 px-1">
+                        {Array.from({length: 5}).map((_, i) => (
+                             <div key={i} className={`w-1 h-1 rounded-full ${i < pop ? 'bg-green-400' : 'bg-black/50'}`}></div>
+                        ))}
+                     </div>
                  </div>
-                 {/* Base */}
                  <div className="w-14 h-2 bg-slate-700 rounded-sm mt-[-2px]"></div>
             </div>
         );
@@ -180,17 +273,10 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
     }
     else if (slot.type === BuildingType.WORKSHOP) {
         Visual = (
-            <div className="flex flex-col items-center relative -mb-1">
-                {/* Workshop Factory */}
+            <div className="flex flex-col items-center relative -mb-1 animate-[fadeIn_0.5s_ease-out]">
                 <div className="w-12 h-10 bg-slate-700 border-2 border-slate-500 relative shadow-lg">
-                    {/* Roof */}
                     <div className="absolute -top-4 left-0 w-0 h-0 border-l-[24px] border-l-transparent border-r-[24px] border-r-transparent border-b-[16px] border-b-slate-700"></div>
-                    {/* Door */}
                     <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-6 bg-slate-900 border-t-2 border-x-2 border-slate-600"></div>
-                    {/* Chimney */}
-                    <div className="absolute -top-6 right-1 w-3 h-6 bg-slate-600 border border-slate-500"></div>
-                    {/* Smoke */}
-                    <div className="absolute -top-8 right-1.5 w-2 h-2 bg-gray-400 rounded-full opacity-50 animate-ping"></div>
                 </div>
                  <div className="w-14 h-1 bg-slate-800 mt-[-1px]"></div>
             </div>
@@ -199,11 +285,9 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
     }
     else if (slot.type === BuildingType.REACTOR) {
         Visual = (
-            <div className="flex flex-col items-center relative -mb-1">
-                {/* Reactor Core */}
+            <div className="flex flex-col items-center relative -mb-1 animate-[fadeIn_0.5s_ease-out]">
                 <div className="w-10 h-12 bg-yellow-900 border-2 border-yellow-700 rounded-t-lg relative overflow-hidden shadow-lg flex items-center justify-center">
                     <div className="w-4 h-full bg-green-400/20 animate-pulse absolute"></div>
-                    <div className="w-full h-full bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDUiLz4KPC9zdmc+')] opacity-50"></div>
                 </div>
                 <div className="w-14 h-2 bg-slate-800 mt-[-2px]"></div>
             </div>
@@ -212,7 +296,7 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
     }
     else if (slot.type === BuildingType.CRUSHER) {
         Visual = (
-             <div className="flex flex-col items-center relative -mb-1">
+             <div className="flex flex-col items-center relative -mb-1 animate-[fadeIn_0.5s_ease-out]">
                 <div className="w-12 h-8 bg-red-900 border-2 border-red-700 rounded-sm flex items-center justify-center shadow-lg relative">
                     <div className="w-8 h-4 bg-black/50 animate-pulse"></div>
                     <div className="absolute -top-2 w-10 h-2 bg-red-800"></div>
@@ -229,34 +313,31 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
         onPointerEnter={() => setHoveredSlotId(slot.id)}
         onPointerLeave={() => setHoveredSlotId(null)}
         onClick={(e) => { e.stopPropagation(); onSelectSlot(slot.id); }}
-        className="absolute flex flex-col items-center justify-end cursor-pointer hover:scale-105"
+        className="absolute flex flex-col items-center justify-end cursor-pointer hover:scale-105 transition-opacity duration-300"
         style={{
           left: `calc(50% + ${pos.x}px)`,
           top: `calc(50% + ${pos.y}px)`,
           transform: `translate(-50%, -50%) rotate(${pos.rot}deg)`, 
-          zIndex: 30,
-          opacity: isVisible ? 1 : 0,
-          pointerEvents: isVisible ? 'auto' : 'none',
+          zIndex: 30, 
+          opacity: visible ? 1 : 0,
+          pointerEvents: visible ? 'auto' : 'none',
         }}
       >
-        {/* Container is centered on surface. */}
         <div className="mb-[2px] origin-bottom">{Visual}</div>
         {Label && <div className="mt-[2px]">{Label}</div>}
-
-        {/* TOOLTIP */}
-        {isHovered && info && (
+        {isHovered && info && visible && (
             <div 
                 className="absolute bottom-full mb-12 w-48 bg-gray-900/95 border border-gray-600 rounded-lg p-3 shadow-2xl text-center pointer-events-none z-50"
-                style={{ 
-                    transform: `rotate(${-pos.rot}deg)`, // Counter-rotate
-                    transformOrigin: 'center bottom'
-                }}
+                style={{ transform: `rotate(${-pos.rot}deg)`, transformOrigin: 'center bottom' }}
             >
                 <div className="font-bold text-white">{info.label}</div>
-                <div className="text-xs text-yellow-500 font-mono mb-1">Level {slot.level}</div>
+                <div className="text-xs text-yellow-500 font-mono mb-1">
+                    {slot.status === 'COMPLETED' ? `Level ${slot.level}` : 'Under Construction'}
+                </div>
                 <div className="text-[10px] text-gray-300 leading-tight">{info.desc}</div>
-                <div className="mt-2 text-[10px] text-blue-400 uppercase tracking-widest font-bold">Click to Manage</div>
-                {/* Arrow */}
+                {slot.type === BuildingType.DORMITORY && (
+                    <div className="mt-2 text-[10px] text-green-400">Occupants: {slot.occupants.length}/5</div>
+                )}
                 <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-gray-600" />
             </div>
         )}
@@ -265,13 +346,13 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
   });
 
   const minePos = getPosition(MINE_ANGLE, SURFACE_LEVEL);
+  const mineVisible = isVisible(minePos.rot);
   const pilePos = getPosition(PILE_ANGLE, SURFACE_LEVEL);
+  const pileVisible = isVisible(pilePos.rot);
   const crusherPos = getPosition(CRUSHER_ANGLE, SURFACE_LEVEL);
+  const crusherVisible = isVisible(crusherPos.rot);
   
   const pileScale = Math.min(2, 0.5 + Math.sqrt(surfaceOre) * 0.1);
-  
-  // Visual depth calculation
-  const holeDepthPx = Math.min(300, 20 + mineDepth * 1.5); 
   const toughnessColor = `hsl(${Math.max(0, 40 - mineDepth)}, 70%, 30%)`;
 
   return (
@@ -286,23 +367,12 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
       {/* Stars */}
       {stars.map((star, i) => (
           <div 
-            key={i}
-            className="absolute rounded-full bg-white"
-            style={{
-                left: `${star.x}%`,
-                top: `${star.y}%`,
-                width: `${star.size}px`,
-                height: `${star.size}px`,
-                opacity: star.opacity,
-                boxShadow: star.blink ? '0 0 4px white' : 'none'
-            }}
+            key={i} className="absolute rounded-full bg-white"
+            style={{ left: `${star.x}%`, top: `${star.y}%`, width: `${star.size}px`, height: `${star.size}px`, opacity: star.opacity }}
           />
       ))}
-      <div className="absolute inset-0 bg-gradient-to-t from-blue-900/10 to-transparent pointer-events-none" />
-
+      
       <div className="absolute bottom-0 left-1/2 w-0 h-0">
-        
-        {/* ASTEROID BODY */}
         <div 
           className="absolute rounded-full bg-stone-800 shadow-[0_0_150px_rgba(0,0,0,1)_inset] will-change-transform"
           style={{
@@ -312,59 +382,52 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
             border: '8px solid #292524'
           }}
         >
-          {/* Craters */}
           {craters.map((c, i) => (
               <div 
-                key={i} 
-                className="absolute rounded-full bg-stone-900/40 shadow-[inset_2px_2px_10px_rgba(0,0,0,0.6)]"
-                style={{
-                    left: `calc(50% + ${c.x}px)`,
-                    top: `calc(50% + ${c.y}px)`,
-                    width: c.size,
-                    height: c.size,
-                    transform: 'translate(-50%, -50%)'
-                }}
+                key={i} className="absolute rounded-full bg-stone-900/40 shadow-[inset_2px_2px_10px_rgba(0,0,0,0.6)]"
+                style={{ left: `calc(50% + ${c.x}px)`, top: `calc(50% + ${c.y}px)`, width: c.size, height: c.size, transform: 'translate(-50%, -50%)' }}
               />
           ))}
           
-          {/* Surface Texture Overlays */}
-          <div className="absolute inset-0 opacity-40 rounded-full" 
-               style={{ backgroundImage: 'radial-gradient(circle at 50% 0%, rgba(255,255,255,0.1), transparent 70%)' }}></div>
-          <div className="absolute inset-0 opacity-30"
-               style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'100\' height=\'100\' viewBox=\'0 0 100 100\' xmlns=\'http://www.w3.org/200\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.8\' numOctaves=\'3\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noise)\' opacity=\'0.5\'/%3E%3C/svg%3E")' }}></div>
-          
-          {/* THE MINE SHAFT HOLE (Rotates with asteroid) */}
-          <div 
-             className="absolute top-0 left-1/2 w-14 transform -translate-x-1/2 shadow-[inset_0_10px_20px_rgba(0,0,0,0.9)] overflow-hidden"
-             style={{ 
-               height: `${holeDepthPx}px`, 
-               backgroundColor: '#1a1a1a', // Base dark
-               borderRadius: '0 0 10px 10px',
-               transition: 'height 0.5s'
-             }}
-          >
-             <div className="absolute inset-0 opacity-50"
-                  style={{ background: `linear-gradient(to bottom, transparent, ${toughnessColor})` }}
-             />
-             <div className="absolute top-0 left-2 w-1 h-full bg-stone-600 opacity-50" 
-                  style={{ background: 'repeating-linear-gradient(to bottom, #555 0, #555 2px, transparent 2px, transparent 10px)'}} 
-             />
+          {/* THE MINE SHAFT - Root Style */}
+          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 overflow-visible" style={{ height: '300px', width: '20px' }}>
+              <svg width="40" height="350" viewBox="0 0 40 350" className="absolute top-0 left-1/2 -translate-x-1/2">
+                  <path 
+                    d={minePath} 
+                    fill={`url(#mineGradient)`} 
+                    stroke="none"
+                  />
+                  <defs>
+                      <linearGradient id="mineGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#292524" stopOpacity="0"/>
+                          <stop offset="10%" stopColor={toughnessColor} stopOpacity="0.8"/>
+                          <stop offset="100%" stopColor="#000" stopOpacity="0.95"/>
+                      </linearGradient>
+                  </defs>
+              </svg>
+             
+             {/* Loose Ore at bottom of rendered shaft */}
+             {looseOreInMine > 0 && (
+                 <div 
+                    className="absolute left-1/2 -translate-x-1/2 w-full flex justify-center flex-wrap px-2"
+                    style={{ top: `${Math.min(300, 20 + mineDepth * 1.5) - 10}px` }}
+                 >
+                     {Array.from({length: Math.min(10, Math.ceil(looseOreInMine / 5))}).map((_, i) => (
+                         <div key={i} className="w-2 h-2 bg-orange-600 rounded-full m-[1px] animate-bounce" style={{ animationDelay: `${i * 0.1}s` }}></div>
+                     ))}
+                 </div>
+             )}
           </div>
         </div>
 
-        {renderedUnits}
         {renderedBuildings}
+        {renderedUnits}
 
-        {/* FIXED SURFACE FEATURES */}
-
-        {/* Mine Entrance Sign */}
         <div 
-            className="absolute flex flex-col items-center pointer-events-none will-change-transform"
+            className="absolute flex flex-col items-center pointer-events-none will-change-transform transition-opacity duration-300"
             style={{
-                left: `calc(50% + ${minePos.x}px)`,
-                top: `calc(50% + ${minePos.y}px)`,
-                transform: `translate(-50%, -50%) rotate(${minePos.rot}deg)`,
-                zIndex: 25
+                left: `calc(50% + ${minePos.x}px)`, top: `calc(50% + ${minePos.y}px)`,
+                transform: `translate(-50%, -50%) rotate(${minePos.rot}deg)`, zIndex: 25, opacity: mineVisible ? 1 : 0
             }}
         >
              <div className="flex flex-col items-center transform -translate-y-6">
@@ -373,97 +436,66 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
              </div>
         </div>
 
-        {/* Ore Pile */}
         <div 
-            className="absolute flex flex-col items-center pointer-events-none will-change-transform"
+            className="absolute flex flex-col items-center pointer-events-none will-change-transform transition-opacity duration-300"
             style={{
-                left: `calc(50% + ${pilePos.x}px)`,
-                top: `calc(50% + ${pilePos.y}px)`,
-                transform: `translate(-50%, -50%) rotate(${pilePos.rot}deg)`,
-                zIndex: 25
+                left: `calc(50% + ${pilePos.x}px)`, top: `calc(50% + ${pilePos.y}px)`,
+                transform: `translate(-50%, -50%) rotate(${pilePos.rot}deg)`, zIndex: 25, opacity: pileVisible ? 1 : 0
             }}
         >
             <div 
-                className="bg-orange-600 rounded-full border-b-4 border-orange-800 transition-all duration-100"
+                className="bg-orange-600 transition-all duration-100 shadow-md"
                 style={{ 
-                    width: `${20 * pileScale}px`, 
-                    height: `${15 * pileScale}px`, 
-                    transform: `translateY(-${5 * pileScale}px)`
+                    width: `${24 * pileScale}px`, 
+                    height: `${16 * pileScale}px`, 
+                    borderRadius: '50% 50% 5px 5px',
+                    transform: `translateY(-${8 * pileScale}px)`, // Sit ON surface
+                    clipPath: 'polygon(0% 100%, 10% 40%, 40% 0%, 60% 0%, 90% 40%, 100% 100%)'
                 }}
             />
-            {surfaceOre > 0 && <div className="text-[10px] text-orange-200 font-mono mt-1">{Math.floor(surfaceOre)}</div>}
+            {/* No Label */}
         </div>
 
-        {/* Main Crusher */}
         <div 
-            className="absolute flex flex-col items-center cursor-pointer will-change-transform hover:scale-105"
+            className="absolute flex flex-col items-center cursor-pointer will-change-transform hover:scale-105 transition-opacity duration-300"
             style={{
-                left: `calc(50% + ${crusherPos.x}px)`,
-                top: `calc(50% + ${crusherPos.y}px)`,
-                transform: `translate(-50%, -50%) rotate(${crusherPos.rot}deg)`,
-                zIndex: 26
+                left: `calc(50% + ${crusherPos.x}px)`, top: `calc(50% + ${crusherPos.y}px)`,
+                transform: `translate(-50%, -50%) rotate(${crusherPos.rot}deg)`, zIndex: 26,
+                opacity: crusherVisible ? 1 : 0, pointerEvents: crusherVisible ? 'auto' : 'none'
             }}
             onPointerEnter={() => setHoveredCrusher(true)}
             onPointerLeave={() => setHoveredCrusher(false)}
-            onClick={(e) => { 
-                e.stopPropagation(); 
-                // Placeholder for future interaction 
-            }}
         >
              <div className="relative group mb-[2px]">
                  <div className="w-16 h-12 bg-slate-700 border-2 border-slate-500 rounded-lg flex items-center justify-center shadow-lg relative z-10">
                     <Settings className="text-slate-400 animate-spin-slow" size={24} />
                  </div>
-                 <div className="absolute top-1/2 -left-4 w-6 h-2 bg-slate-600 transform -rotate-12 z-0" />
-                 {surfaceOre > 0 && (
-                     <div className="absolute -top-4 left-1/2 w-2 h-2 bg-gray-400 rounded-full animate-ping opacity-50" />
-                 )}
+                 {surfaceOre > 0 && <div className="absolute -top-4 left-1/2 w-2 h-2 bg-gray-400 rounded-full animate-ping opacity-50" />}
              </div>
              <div className="bg-slate-800 text-[10px] px-2 py-0.5 rounded text-slate-300 border border-slate-600 mt-[2px]">CRUSHER</div>
-
-             {/* Crusher Tooltip */}
-             {hoveredCrusher && (
+             {hoveredCrusher && crusherVisible && (
                 <div 
                     className="absolute bottom-full mb-8 w-48 bg-gray-900/95 border border-gray-600 rounded-lg p-3 shadow-2xl text-center pointer-events-none z-50"
-                    style={{ 
-                        transform: `rotate(${-crusherPos.rot}deg)`,
-                        transformOrigin: 'center bottom'
-                    }}
+                    style={{ transform: `rotate(${-crusherPos.rot}deg)`, transformOrigin: 'center bottom' }}
                 >
                     <div className="font-bold text-white">Ore Crusher</div>
                     <div className="text-xs text-yellow-500 font-mono mb-1">Level 1</div>
                     <div className="text-[10px] text-gray-300 leading-tight">Main processing unit. Converts surface ore into credits automatically.</div>
-                    {/* Arrow */}
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-gray-600" />
                 </div>
              )}
         </div>
       </div>
 
-      {/* Manual Rotate Buttons */}
       <div className="absolute bottom-28 left-1/2 transform -translate-x-1/2 flex gap-8 z-40 pointer-events-auto opacity-50 hover:opacity-100 transition-opacity">
         <button 
-          onMouseDown={() => {
-             const interval = setInterval(() => setRotation(p => p+2), 20);
-             const stop = () => clearInterval(interval);
-             window.addEventListener('mouseup', stop, { once: true });
-          }}
+          onMouseDown={() => { const interval = setInterval(() => setRotation(p => p+2), 20); const stop = () => clearInterval(interval); window.addEventListener('mouseup', stop, { once: true }); }}
           className="p-3 rounded-full bg-slate-800 text-white border border-slate-600"
-        >
-          <RotateCcw size={20} />
-        </button>
+        ><RotateCcw size={20} /></button>
         <button 
-          onMouseDown={() => {
-            const interval = setInterval(() => setRotation(p => p-2), 20);
-            const stop = () => clearInterval(interval);
-            window.addEventListener('mouseup', stop, { once: true });
-         }}
+          onMouseDown={() => { const interval = setInterval(() => setRotation(p => p-2), 20); const stop = () => clearInterval(interval); window.addEventListener('mouseup', stop, { once: true }); }}
           className="p-3 rounded-full bg-slate-800 text-white border border-slate-600"
-        >
-          <RotateCw size={20} />
-        </button>
+        ><RotateCw size={20} /></button>
       </div>
-
     </div>
   );
 };

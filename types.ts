@@ -13,10 +13,21 @@ export enum BuildingType {
   REACTOR = 'REACTOR', // Global speed boost
 }
 
+export type BuildingStatus = 'EMPTY' | 'PENDING' | 'UNDER_CONSTRUCTION' | 'COMPLETED';
+
 export interface Entity {
   id: string;
   type: UnitType;
-  state: 'IDLE' | 'MOVING_TO_MINE' | 'ENTERING_MINE' | 'MINING' | 'EXITING_MINE' | 'MOVING_TO_PILE' | 'DEPOSITING' | 'MOVING_TO_HOME' | 'CHARGING';
+  // Updated State Machine
+  state: 'IDLE' | 
+         'MOVING_TO_MINE' | 'ENTERING_MINE' | 'MINING' | 'EXITING_MINE' | 
+         'MOVING_TO_PILE' | 'DEPOSITING' | 
+         'MOVING_TO_HOME' | 'CHARGING' | 
+         'MOVING_TO_BUILD' | 'BUILDING' |
+         'MOVING_TO_DRILL' | 'CARRYING_DRILL_TO_MINE' | 'OPERATING_DRILL' | 
+         'PICKUP_LOOSE_ORE' | 
+         'MOVING_TO_WORK' | 'WORKING_IN_BUILDING';
+  
   position: { x: number; y: number; angle: number; radius: number };
   targetDepth: number;
   inventory: number;
@@ -26,6 +37,12 @@ export interface Entity {
   speed: number;
   miningPower: number;
   progress: number; // 0 to 1 for current action
+  
+  // New Logic Props
+  homeBuildingId: number | null; // ID of the habitat this unit belongs to
+  carryingId: string | null; // ID of the tool/drill this unit is carrying
+  carriedBy: string | null; // ID of the unit carrying this entity (if it's a drill)
+  workingAtBuildingId: number | null; // ID of building unit is assigned to work at
 }
 
 export interface BuildingSlot {
@@ -34,11 +51,21 @@ export interface BuildingSlot {
   type: BuildingType | null;
   level: number;
   unlocked: boolean;
+  status: BuildingStatus;
+  constructionProgress: number; // 0 to 1
+  assignedUnitId: string | null;
+  occupants: string[]; // IDs of units that live here
+  
+  // Worker Logic
+  maxWorkers: number;
+  assignedWorkers: string[]; // IDs of units working here
+  workersEnabled: boolean; // Toggle for player
 }
 
 export interface GameState {
   credits: number;
-  surfaceOre: number; // Ore sitting at the pile
+  surfaceOre: number; // Ore sitting at the pile (Surface)
+  looseOreInMine: number; // Ore sitting at the bottom of the mine (needs hauling)
   totalMined: number; // Used to calculate depth
   mineDepth: number; // Visual and logic depth (meters)
   maxPopulation: number;
