@@ -1,0 +1,5 @@
+{
+  "name": "Asteroid Colony: Deep Core",
+  "description": "A Gnorp-like incremental game where you manage a mining colony on a rotating asteroid. Mine deep, refine ore, and expand your operation.",
+  "requestFramePermissions": []
+}
