@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import AsteroidCanvas from './components/AsteroidCanvas';
 import Overlay from './components/Overlay';
 import { GameState, UnitType, BuildingType, Entity, SURFACE_LEVEL, MINE_ANGLE, PILE_ANGLE, BuildingSlot, BuildingStatus } from './types';
-import { UNIT_STATS, ORE_VALUE, INITIAL_SLOTS, BUILDING_COSTS, BASE_POPULATION, POPULATION_PER_HABITAT, ENERGY_DRAIN_RATE, ENERGY_RECHARGE_RATE, BUILD_SPEED_BASE, COST_SCALING_FACTOR, DRILL_WEIGHT_SPEED_PENALTY, DRILL_PRODUCTION_RATE, BUILDING_UPGRADES, CRUSHER_WORKER_BONUS } from './constants';
+import { UNIT_STATS, ORE_VALUE, INITIAL_SLOTS, BUILDING_COSTS, BASE_POPULATION, POPULATION_PER_HABITAT, ENERGY_DRAIN_RATE, ENERGY_RECHARGE_RATE, BUILD_SPEED_BASE, COST_SCALING_FACTOR, DRILL_WEIGHT_SPEED_PENALTY, DRILL_PRODUCTION_RATE, BUILDING_UPGRADES, CRUSHER_WORKER_BONUS, TAX_INTERVAL, TAX_INITIAL_AMOUNT, TAX_SCALE } from './constants';
 
 const App: React.FC = () => {
   // Game State
@@ -18,7 +18,10 @@ const App: React.FC = () => {
     buildings: INITIAL_SLOTS as BuildingSlot[],
     lastTick: Date.now(),
     rotation: 0,
-    targetRotation: null
+    targetRotation: null,
+    taxTimer: Date.now() + TAX_INTERVAL,
+    taxAmount: TAX_INITIAL_AMOUNT,
+    taxDue: false
   });
 
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
@@ -36,6 +39,8 @@ const App: React.FC = () => {
   // --- Game Logic ---
 
   const spawnUnit = (type: UnitType) => {
+    if (gameState.taxDue) return; // Blocked by tax
+
     const cost = getUnitCost(type, gameState.units);
     if (gameState.credits < cost) return;
 
@@ -103,6 +108,8 @@ const App: React.FC = () => {
   };
 
   const constructBuilding = (slotId: number, type: BuildingType) => {
+    if (gameState.taxDue) return; // Blocked by tax
+
     const existingDorms = gameState.buildings.filter(b => b.type === BuildingType.DORMITORY).length;
     const isFreeHabitat = type === BuildingType.DORMITORY && existingDorms === 0;
     const cost = isFreeHabitat ? 0 : BUILDING_COSTS[type].baseCost;
@@ -137,6 +144,8 @@ const App: React.FC = () => {
   };
 
   const purchaseUpgrade = (slotId: number, upgradeId: string) => {
+      if (gameState.taxDue) return; // Blocked by tax
+
       const slot = gameState.buildings.find(b => b.id === slotId);
       if (!slot || !slot.type) return;
 
@@ -152,14 +161,20 @@ const App: React.FC = () => {
               
               const newUpgrades = [...b.upgrades, upgradeId];
               let newMaxWorkers = b.maxWorkers;
+              let newLevel = b.level;
+              
+              // Apply Effects
               if (upgrade.effect?.maxWorkersAdd) {
                   newMaxWorkers += upgrade.effect.maxWorkersAdd;
               }
+              // Just generic level up for visuals
+              newLevel += 1;
 
               return {
                   ...b,
                   upgrades: newUpgrades,
-                  maxWorkers: newMaxWorkers
+                  maxWorkers: newMaxWorkers,
+                  level: newLevel
               };
           });
 
@@ -215,6 +230,24 @@ const App: React.FC = () => {
       let newTotalMined = prev.totalMined;
       let newDepth = prev.mineDepth;
       let newRotation = prev.rotation;
+      let newTaxTimer = prev.taxTimer;
+      let newTaxAmount = prev.taxAmount;
+      let newTaxDue = prev.taxDue;
+
+      // Tax Logic
+      if (!newTaxDue) {
+          if (now >= newTaxTimer) {
+              newTaxDue = true;
+          }
+      }
+      if (newTaxDue) {
+          if (newCredits >= newTaxAmount) {
+              newCredits -= newTaxAmount;
+              newTaxDue = false;
+              newTaxAmount = Math.floor(newTaxAmount * TAX_SCALE);
+              newTaxTimer = now + TAX_INTERVAL;
+          }
+      }
 
       const newBuildings = prev.buildings.map(b => ({ ...b }));
 
@@ -227,9 +260,19 @@ const App: React.FC = () => {
           else newRotation += diff * 5 * dt; 
       }
 
-      // Calculate Max Pop
+      // Calculate Max Pop (Including Upgrades)
       const dorms = newBuildings.filter(b => b.type === BuildingType.DORMITORY && b.status === 'COMPLETED');
-      const newMaxPop = BASE_POPULATION + (dorms.length * POPULATION_PER_HABITAT);
+      let calculatedMaxPop = BASE_POPULATION;
+      dorms.forEach(d => {
+          calculatedMaxPop += POPULATION_PER_HABITAT;
+          // Check upgrades for extra pop
+          if (d.upgrades) {
+             d.upgrades.forEach(uId => {
+                 const upg = BUILDING_UPGRADES[BuildingType.DORMITORY].find(x => x.id === uId);
+                 if (upg?.effect?.maxPopAdd) calculatedMaxPop += upg.effect.maxPopAdd;
+             });
+          }
+      });
 
       // Helper: Movement
       const moveUnit = (u: Entity, targetAngle: number, targetRadius: number, speedMult = 1) => {
@@ -301,20 +344,46 @@ const App: React.FC = () => {
       };
 
       // --- PRIMARY UNIT LOOP ---
-      // We process carrier inheritance logic *before* the main logic to ensure tool states are up to date
-      const preProcessedUnits = prev.units.map(unit => {
+
+      // Step 0: Carrier <-> Tool Handshake
+      // Ensure that if a Carrier has a carryingId, the Tool knows it is carriedBy that Carrier.
+      const carrierMap = new Map<string, string>(); // ToolID -> CarrierID
+      prev.units.forEach(u => {
+          if (u.carryingId) carrierMap.set(u.carryingId, u.id);
+      });
+
+      const syncedUnits = prev.units.map(unit => {
+          const u = { ...unit };
+          // If I am a tool and someone claims to carry me, update my state
+          if (carrierMap.has(u.id)) {
+              u.carriedBy = carrierMap.get(u.id)!;
+          }
+          // If I am a carrier, but my tool doesn't exist anymore (bug safety), clear it
+          if (u.carryingId && !prev.units.find(t => t.id === u.carryingId)) {
+              u.carryingId = null;
+          }
+          return u;
+      });
+
+      // Step 1: Pre-process Position Sync
+      const preProcessedUnits = syncedUnits.map(unit => {
           const u = { ...unit };
           // If this is a tool, sync it with its carrier immediately
-          if (UNIT_STATS[u.type].isTool && u.carriedBy) {
-              const carrier = prev.units.find(c => c.id === u.carriedBy);
-              if (carrier) {
-                  u.position = { ...carrier.position };
-                  if (carrier.state === 'OPERATING_DRILL') u.state = 'OPERATING_DRILL';
-                  else u.state = 'IDLE'; // Just being carried
-              } else {
-                  u.carriedBy = null; // Carrier lost
-                  u.state = 'IDLE';
-              }
+          if (UNIT_STATS[u.type].isTool) {
+             if (u.carriedBy) {
+                const carrier = syncedUnits.find(c => c.id === u.carriedBy);
+                if (carrier) {
+                    u.position = { ...carrier.position };
+                    if (carrier.state === 'OPERATING_DRILL') u.state = 'OPERATING_DRILL';
+                    else u.state = 'IDLE'; // Just being carried
+                } else {
+                    u.carriedBy = null; // Carrier lost
+                    u.state = 'IDLE';
+                }
+             } else {
+                 u.carriedBy = null;
+                 u.state = 'IDLE';
+             }
           }
           return u;
       });
@@ -352,7 +421,7 @@ const App: React.FC = () => {
               const job = newBuildings.find(b => b.assignedUnitId === u.id);
               if (job) job.assignedUnitId = null;
 
-              // Drop Building Work - IMPORTANT FIX
+              // Drop Building Work
               if (u.workingAtBuildingId !== null) {
                   const b = newBuildings.find(bd => bd.id === u.workingAtBuildingId);
                   if (b) {
@@ -534,6 +603,8 @@ const App: React.FC = () => {
                        const isNear = moveUnit(u, targetDrill.position.angle, targetDrill.position.radius);
                        if (isNear) {
                            u.carryingId = targetDrill.id;
+                           // Note: We don't set targetDrill.carriedBy here because we can't mutate other units in map.
+                           // The 'syncedUnits' step at start of next tick will handle the handshake.
                            u.state = 'CARRYING_DRILL_TO_MINE'; 
                        }
                    }
@@ -579,11 +650,14 @@ const App: React.FC = () => {
         looseOreInMine: Math.max(0, newLooseOreInMine),
         totalMined: newTotalMined,
         mineDepth: newDepth,
-        maxPopulation: newMaxPop,
+        maxPopulation: calculatedMaxPop,
         units: newUnits,
         buildings: newBuildings,
         lastTick: now,
-        rotation: newRotation
+        rotation: newRotation,
+        taxTimer: newTaxTimer,
+        taxAmount: newTaxAmount,
+        taxDue: newTaxDue
       };
     });
 

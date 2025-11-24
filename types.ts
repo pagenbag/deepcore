@@ -75,6 +75,11 @@ export interface GameState {
   lastTick: number;
   rotation: number; // Visual rotation of the asteroid
   targetRotation: number | null; // If set, asteroid auto-rotates to this angle
+  
+  // Tax System
+  taxTimer: number; // Timestamp when next tax is due
+  taxAmount: number; // Current tax amount required
+  taxDue: boolean; // Is payment pending (blocking spending)
 }
 
 export const ASTEROID_RADIUS = 400; // Radius in pixels

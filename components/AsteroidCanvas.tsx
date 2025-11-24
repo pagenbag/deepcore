@@ -1,7 +1,7 @@
 
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { GameState, ASTEROID_RADIUS, SURFACE_LEVEL, UnitType, BuildingType, PILE_ANGLE, MINE_ANGLE } from '../types';
-import { RotateCw, RotateCcw, Settings, BatteryWarning } from 'lucide-react';
+import { RotateCw, RotateCcw, Settings, BatteryWarning, AlertTriangle } from 'lucide-react';
 import { BUILDING_COSTS } from '../constants';
 
 interface AsteroidCanvasProps {
@@ -13,7 +13,7 @@ interface AsteroidCanvasProps {
 const DEG_TO_RAD = Math.PI / 180;
 
 const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation, onSelectSlot }) => {
-  const { rotation, units, buildings, surfaceOre, mineDepth, looseOreInMine } = gameState;
+  const { rotation, units, buildings, surfaceOre, mineDepth, looseOreInMine, taxDue } = gameState;
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [hoveredSlotId, setHoveredSlotId] = useState<number | null>(null);
@@ -254,15 +254,22 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
     }
     else if (slot.type === BuildingType.DORMITORY) {
         const pop = slot.occupants.length;
+        const upgraded = slot.level > 1;
+        const scaleH = upgraded ? 'h-14' : 'h-10'; // Taller if upgraded
+        const scaleW = upgraded ? 'w-14' : 'w-12'; // Wider if upgraded
+        
         Visual = (
             <div className="flex flex-col items-center relative -mb-1 animate-[fadeIn_0.5s_ease-out]">
-                 <div className="w-12 h-10 bg-blue-600 rounded-t-full border-4 border-blue-800 relative overflow-hidden shadow-lg">
+                 <div className={`${scaleW} ${scaleH} bg-blue-600 rounded-t-full border-4 border-blue-800 relative overflow-hidden shadow-lg transition-all`}>
                      <div className="absolute top-2 left-3 w-3 h-3 bg-cyan-300 rounded-full blur-[1px] animate-pulse"></div>
                      <div className="absolute bottom-0 w-full h-2 bg-blue-900 flex justify-center gap-1 px-1">
                         {Array.from({length: 5}).map((_, i) => (
                              <div key={i} className={`w-1 h-1 rounded-full ${i < pop ? 'bg-green-400' : 'bg-black/50'}`}></div>
                         ))}
                      </div>
+                     {upgraded && (
+                         <div className="absolute top-0 right-0 w-4 h-4 bg-yellow-400 transform rotate-45 translate-x-2 -translate-y-2 border border-yellow-600"></div>
+                     )}
                  </div>
                  <div className="w-14 h-2 bg-slate-700 rounded-sm mt-[-2px]"></div>
             </div>
@@ -386,6 +393,16 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
           />
       ))}
       
+      {/* TAX ALERT */}
+      {taxDue && (
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-40 animate-bounce">
+              <div className="bg-red-600 text-white font-bold px-4 py-2 rounded-lg shadow-xl border-2 border-red-400 flex items-center gap-2">
+                  <AlertTriangle size={20} />
+                  <span>TAX DUE! PAYING...</span>
+              </div>
+          </div>
+      )}
+      
       <div className="absolute bottom-0 left-1/2 w-0 h-0">
         <div 
           className="absolute rounded-full bg-stone-800 shadow-[0_0_150px_rgba(0,0,0,1)_inset] will-change-transform"
@@ -426,8 +443,8 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
                     className="absolute left-1/2 -translate-x-1/2 w-full flex justify-center flex-wrap px-2"
                     style={{ top: `${Math.min(300, 20 + mineDepth * 1.5) - 10}px` }}
                  >
-                     {Array.from({length: Math.min(10, Math.ceil(looseOreInMine / 5))}).map((_, i) => (
-                         <div key={i} className="w-2 h-2 bg-orange-600 rounded-full m-[1px] animate-bounce" style={{ animationDelay: `${i * 0.1}s` }}></div>
+                     {Array.from({length: Math.min(15, Math.ceil(looseOreInMine / 5))}).map((_, i) => (
+                         <div key={i} className="w-1.5 h-1.5 bg-yellow-200 rounded-full m-[1px] shadow-sm"></div>
                      ))}
                  </div>
              )}

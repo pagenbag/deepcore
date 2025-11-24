@@ -1,8 +1,8 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GameState, UnitType, BuildingType } from '../types';
 import { UNIT_STATS, BUILDING_COSTS, UNIT_UNLOCKS, COST_SCALING_FACTOR, BUILDING_UPGRADES } from '../constants';
-import { Coins, Mountain, Pickaxe, Users, X, Hammer, ArrowUpCircle, UserCog } from 'lucide-react';
+import { Coins, Mountain, Pickaxe, Users, X, Hammer, ArrowUpCircle, UserCog, Clock } from 'lucide-react';
 
 interface OverlayProps {
   gameState: GameState;
@@ -28,9 +28,23 @@ const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId,
       return Math.floor(base * Math.pow(COST_SCALING_FACTOR, count));
   };
 
-  const hasUpgrades = selectedSlot && BUILDING_UPGRADES[selectedSlot.type]?.length > 0;
+  const hasUpgrades = selectedSlot && selectedSlot.type && BUILDING_UPGRADES[selectedSlot.type]?.length > 0;
   const hasWorkers = selectedSlot && selectedSlot.maxWorkers > 0;
+  const hasRecruit = selectedSlot && selectedSlot.type && UNIT_UNLOCKS[selectedSlot.type] && UNIT_UNLOCKS[selectedSlot.type].length > 0;
 
+  // Reset tab when slot changes
+  useEffect(() => {
+    if (isBuildingMenu) {
+        if (hasRecruit) setActiveTab('RECRUIT');
+        else if (hasUpgrades) setActiveTab('UPGRADES');
+        else if (hasWorkers) setActiveTab('WORKERS');
+    }
+  }, [selectedSlotId, isBuildingMenu, hasRecruit, hasUpgrades, hasWorkers]);
+
+  const taxTimeRemaining = Math.max(0, Math.floor((gameState.taxTimer - Date.now()) / 1000));
+  const mins = Math.floor(taxTimeRemaining / 60);
+  const secs = taxTimeRemaining % 60;
+  
   return (
     <>
       {/* Top Resource Bar */}
@@ -44,6 +58,17 @@ const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId,
             </div>
           </div>
           
+          {/* TAX INDICATOR */}
+          <div className={`bg-slate-900/90 border p-2 px-4 rounded-full flex items-center gap-3 shadow-xl backdrop-blur ${gameState.taxDue ? 'border-red-500 animate-pulse' : 'border-slate-700'}`}>
+             <Clock className={gameState.taxDue ? "text-red-500" : "text-gray-400"} size={18} />
+             <div>
+                <div className="text-[10px] text-gray-500 uppercase font-bold tracking-widest leading-none">Tax Due</div>
+                <div className={`text-lg font-mono leading-none ${gameState.taxDue ? 'text-red-500' : 'text-gray-300'}`}>
+                    ${formatNumber(gameState.taxAmount)} <span className="text-xs">({mins}:{secs < 10 ? '0'+secs : secs})</span>
+                </div>
+             </div>
+          </div>
+
           <div className="bg-slate-900/90 border border-slate-700 p-2 px-4 rounded-full flex items-center gap-3 shadow-xl backdrop-blur">
             <Mountain className="text-orange-500" size={18} />
             <div>
@@ -85,6 +110,15 @@ const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId,
             >
                 <X size={24} />
             </button>
+            
+            {/* TAX LOCK MSG */}
+            {gameState.taxDue && (
+                <div className="absolute inset-0 bg-slate-950/80 z-10 flex flex-col items-center justify-center rounded-2xl backdrop-blur-sm">
+                    <div className="text-red-500 font-bold text-2xl mb-2">OPERATIONS SUSPENDED</div>
+                    <div className="text-white text-lg">Outstanding Tax Payment Required: ${formatNumber(gameState.taxAmount)}</div>
+                    <div className="text-gray-400 text-sm mt-2">All purchasing frozen until payment is auto-deducted.</div>
+                </div>
+            )}
 
             {!isBuildingMenu && (
                 <>
@@ -142,17 +176,19 @@ const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId,
                     </div>
 
                     {/* TABS */}
-                    <div className="flex gap-2 mb-2">
-                        <button 
-                            onClick={() => setActiveTab('RECRUIT')}
-                            className={`px-4 py-2 rounded-t-lg text-sm font-bold border-b-2 transition-colors ${activeTab === 'RECRUIT' ? 'border-blue-500 text-white bg-white/5' : 'border-transparent text-gray-500 hover:text-gray-300'}`}
-                        >
-                            RECRUIT
-                        </button>
+                    <div className="flex gap-2 mb-2 border-b border-gray-800">
+                        {hasRecruit && (
+                            <button 
+                                onClick={() => setActiveTab('RECRUIT')}
+                                className={`px-4 py-2 rounded-t-lg text-sm font-bold border-b-2 transition-colors relative top-[2px] ${activeTab === 'RECRUIT' ? 'border-blue-500 text-white bg-white/5' : 'border-transparent text-gray-500 hover:text-gray-300'}`}
+                            >
+                                RECRUIT
+                            </button>
+                        )}
                         {hasUpgrades && (
                             <button 
                                 onClick={() => setActiveTab('UPGRADES')}
-                                className={`px-4 py-2 rounded-t-lg text-sm font-bold border-b-2 transition-colors ${activeTab === 'UPGRADES' ? 'border-purple-500 text-white bg-white/5' : 'border-transparent text-gray-500 hover:text-gray-300'}`}
+                                className={`px-4 py-2 rounded-t-lg text-sm font-bold border-b-2 transition-colors relative top-[2px] ${activeTab === 'UPGRADES' ? 'border-purple-500 text-white bg-white/5' : 'border-transparent text-gray-500 hover:text-gray-300'}`}
                             >
                                 UPGRADES
                             </button>
@@ -160,7 +196,7 @@ const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId,
                         {hasWorkers && (
                             <button 
                                 onClick={() => setActiveTab('WORKERS')}
-                                className={`px-4 py-2 rounded-t-lg text-sm font-bold border-b-2 transition-colors ${activeTab === 'WORKERS' ? 'border-green-500 text-white bg-white/5' : 'border-transparent text-gray-500 hover:text-gray-300'}`}
+                                className={`px-4 py-2 rounded-t-lg text-sm font-bold border-b-2 transition-colors relative top-[2px] ${activeTab === 'WORKERS' ? 'border-green-500 text-white bg-white/5' : 'border-transparent text-gray-500 hover:text-gray-300'}`}
                             >
                                 WORKERS
                             </button>
@@ -168,7 +204,7 @@ const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId,
                     </div>
 
                     {/* RECRUIT CONTENT */}
-                    {activeTab === 'RECRUIT' && (
+                    {activeTab === 'RECRUIT' && hasRecruit && (
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             {UNIT_UNLOCKS[selectedSlot.type].map(uType => {
                                 const stats = UNIT_STATS[uType];
@@ -203,16 +239,11 @@ const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId,
                                     </button>
                                 )
                             })}
-                            {UNIT_UNLOCKS[selectedSlot.type].length === 0 && (
-                                <div className="col-span-3 flex items-center justify-center p-8 border border-dashed border-slate-700 rounded-xl text-gray-500 text-sm">
-                                    No recruitment options available.
-                                </div>
-                            )}
                         </div>
                     )}
 
                     {/* UPGRADES CONTENT */}
-                    {activeTab === 'UPGRADES' && (
+                    {activeTab === 'UPGRADES' && hasUpgrades && (
                         <div className="grid grid-cols-1 gap-3">
                             {BUILDING_UPGRADES[selectedSlot.type].map(upgrade => {
                                 const purchased = selectedSlot.upgrades.includes(upgrade.id);
@@ -247,7 +278,7 @@ const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId,
                     )}
 
                     {/* WORKERS CONTENT */}
-                    {activeTab === 'WORKERS' && (
+                    {activeTab === 'WORKERS' && hasWorkers && (
                         <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
                              <div className="flex justify-between items-center mb-4">
                                  <div>
