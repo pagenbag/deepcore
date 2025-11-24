@@ -57,9 +57,10 @@ export interface BuildingSlot {
   occupants: string[]; // IDs of units that live here
   
   // Worker Logic
-  maxWorkers: number;
+  maxWorkers: number; // Capacity based on upgrades
   assignedWorkers: string[]; // IDs of units working here
-  workersEnabled: boolean; // Toggle for player
+  requestedWorkers: number; // User set target (0 to maxWorkers)
+  upgrades: string[]; // IDs of purchased upgrades
 }
 
 export interface GameState {

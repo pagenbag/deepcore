@@ -1,7 +1,6 @@
 
-
 import React, { useMemo, useRef, useState, useEffect } from 'react';
-import { GameState, ASTEROID_RADIUS, SURFACE_LEVEL, UnitType, BuildingType, PILE_ANGLE, CRUSHER_ANGLE, MINE_ANGLE } from '../types';
+import { GameState, ASTEROID_RADIUS, SURFACE_LEVEL, UnitType, BuildingType, PILE_ANGLE, MINE_ANGLE } from '../types';
 import { RotateCw, RotateCcw, Settings, BatteryWarning } from 'lucide-react';
 import { BUILDING_COSTS } from '../constants';
 
@@ -18,7 +17,6 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [hoveredSlotId, setHoveredSlotId] = useState<number | null>(null);
-  const [hoveredCrusher, setHoveredCrusher] = useState(false);
   const rotationRef = useRef(rotation);
   
   useEffect(() => { rotationRef.current = rotation; }, [rotation]);
@@ -115,11 +113,6 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
   
   // Units (Z-Index 40)
   const renderedUnits = units.map((unit) => {
-    // If unit is drill and carried, we render it ON the carrier, but we can't hide it completely here because the carrier is rendered separately.
-    // However, logic update: we kept drill visible even if carried? No, usually cleaner to attach.
-    // But since carrier logic is generic, let's render drill at its current position.
-    // The App logic updates the Drill's position to match Carrier. So we just render it.
-    
     const pos = getPosition(unit.position.angle, unit.position.radius);
     const visible = isVisible(pos.rot);
     
@@ -136,7 +129,6 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
     if (unit.type === UnitType.MINER_BASIC) {
         Shape = <div className="w-full h-full bg-yellow-400 border border-yellow-600 rounded-sm relative">
             {unit.carryingId && (
-                 // Rendering the drill logic handles the drill itself, but if we want a generic "carrying" indicator:
                  <div className="absolute -top-3 -left-1 w-5 h-3 bg-transparent" />
             )}
         </div>;
@@ -144,10 +136,16 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
     if (unit.type === UnitType.MINER_DRILL) {
         // Upside down triangle
         size = 'w-5 h-6';
-        zIndex = unit.carriedBy ? 41 : 35; // Above carrier if carried
+        zIndex = unit.carriedBy ? 41 : 35; 
         
-        // Offset Y if being carried to look like it's held
-        const transformY = unit.carriedBy ? '-translate-y-4' : '-translate-y-1/2';
+        let transformY = '-translate-y-1/2';
+        // If being carried, lift up
+        if (unit.carriedBy) transformY = '-translate-y-4';
+        // If Operating, appear BELOW carrier
+        if (unit.state === 'OPERATING_DRILL') {
+            zIndex = 39;
+            transformY = 'translate-y-2'; // Push down
+        }
 
         Shape = (
             <div className={`w-full h-full relative drop-shadow-lg ${unit.state === 'OPERATING_DRILL' ? 'animate-vibrate' : ''}`}>
@@ -177,10 +175,10 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
     let interactionAnim = "";
     if (unit.state === 'BUILDING' || unit.state === 'WORKING_IN_BUILDING') interactionAnim = "animate-bounce"; 
     
-    // Adjust visual position if it's a drill being carried to appear "held"
     let renderTransform = `translate(-50%, -50%) rotate(${pos.rot}deg)`;
-    if (unit.type === UnitType.MINER_DRILL && unit.carriedBy) {
-         renderTransform = `translate(-50%, -150%) rotate(${pos.rot}deg)`; // Lift it up
+    if (unit.type === UnitType.MINER_DRILL) {
+        if (unit.carriedBy) renderTransform = `translate(-50%, -150%) rotate(${pos.rot}deg)`;
+        if (unit.state === 'OPERATING_DRILL') renderTransform = `translate(-50%, 30%) rotate(${pos.rot}deg)`;
     }
 
     return (
@@ -250,7 +248,7 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
                  <div className="w-14 h-2 bg-slate-800 mt-[-2px]"></div>
             </div>
         );
-        Label = <div className="bg-yellow-900/80 text-[9px] px-1.5 py-0.5 rounded text-yellow-200 border border-yellow-700 mt-1 shadow animate-pulse">
+        Label = <div className="bg-yellow-900/80 text-[9px] px-1.5 py-0.5 rounded text-yellow-200 border border-yellow-700 mt-1 shadow animate-pulse whitespace-nowrap">
             {slot.status === 'PENDING' ? 'PLANNED' : `${Math.floor(slot.constructionProgress * 100)}%`}
         </div>;
     }
@@ -269,7 +267,7 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
                  <div className="w-14 h-2 bg-slate-700 rounded-sm mt-[-2px]"></div>
             </div>
         );
-        Label = <div className="bg-blue-900/80 text-[9px] px-1.5 py-0.5 rounded text-blue-200 border border-blue-700 mt-1 shadow">HABITAT</div>;
+        Label = <div className="bg-blue-900/80 text-[9px] px-1.5 py-0.5 rounded text-blue-200 border border-blue-700 mt-1 shadow whitespace-nowrap">HABITAT</div>;
     }
     else if (slot.type === BuildingType.WORKSHOP) {
         Visual = (
@@ -281,7 +279,7 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
                  <div className="w-14 h-1 bg-slate-800 mt-[-1px]"></div>
             </div>
         );
-        Label = <div className="bg-purple-900/80 text-[9px] px-1.5 py-0.5 rounded text-purple-200 border border-purple-700 mt-1 shadow">TECH LAB</div>;
+        Label = <div className="bg-purple-900/80 text-[9px] px-1.5 py-0.5 rounded text-purple-200 border border-purple-700 mt-1 shadow whitespace-nowrap">TECH LAB</div>;
     }
     else if (slot.type === BuildingType.REACTOR) {
         Visual = (
@@ -292,19 +290,37 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
                 <div className="w-14 h-2 bg-slate-800 mt-[-2px]"></div>
             </div>
         );
-        Label = <div className="bg-yellow-900/80 text-[9px] px-1.5 py-0.5 rounded text-yellow-200 border border-yellow-700 mt-1 shadow">REACTOR</div>;
+        Label = <div className="bg-yellow-900/80 text-[9px] px-1.5 py-0.5 rounded text-yellow-200 border border-yellow-700 mt-1 shadow whitespace-nowrap">REACTOR</div>;
     }
     else if (slot.type === BuildingType.CRUSHER) {
-        Visual = (
-             <div className="flex flex-col items-center relative -mb-1 animate-[fadeIn_0.5s_ease-out]">
-                <div className="w-12 h-8 bg-red-900 border-2 border-red-700 rounded-sm flex items-center justify-center shadow-lg relative">
-                    <div className="w-8 h-4 bg-black/50 animate-pulse"></div>
-                    <div className="absolute -top-2 w-10 h-2 bg-red-800"></div>
+        // Distinguish Main vs Aux
+        if (slot.id === 0) {
+            // Main Crusher (Grey/Gear)
+            Visual = (
+                <div className="flex flex-col items-center relative -mb-1 animate-[fadeIn_0.5s_ease-out]">
+                     <div className="relative group mb-[2px]">
+                         <div className="w-16 h-12 bg-slate-700 border-2 border-slate-500 rounded-lg flex items-center justify-center shadow-lg relative z-10">
+                            <Settings className="text-slate-400 animate-spin-slow" size={24} />
+                         </div>
+                         {surfaceOre > 0 && <div className="absolute -top-4 left-1/2 w-2 h-2 bg-gray-400 rounded-full animate-ping opacity-50" />}
+                     </div>
+                     <div className="w-14 h-2 bg-slate-800 mt-[-1px]"></div>
                 </div>
-                <div className="w-14 h-2 bg-slate-800 mt-[-1px]"></div>
-            </div>
-        );
-        Label = <div className="bg-red-900/80 text-[9px] px-1.5 py-0.5 rounded text-red-200 border border-red-700 mt-1 shadow">AUX CRUSHER</div>;
+            );
+            Label = <div className="bg-slate-800 text-[9px] px-2 py-0.5 rounded text-slate-300 border border-slate-600 mt-[2px] shadow whitespace-nowrap">ORE CRUSHER</div>;
+        } else {
+            // Aux Crusher (Red)
+            Visual = (
+                 <div className="flex flex-col items-center relative -mb-1 animate-[fadeIn_0.5s_ease-out]">
+                    <div className="w-12 h-8 bg-red-900 border-2 border-red-700 rounded-sm flex items-center justify-center shadow-lg relative">
+                        <div className="w-8 h-4 bg-black/50 animate-pulse"></div>
+                        <div className="absolute -top-2 w-10 h-2 bg-red-800"></div>
+                    </div>
+                    <div className="w-14 h-2 bg-slate-800 mt-[-1px]"></div>
+                </div>
+            );
+            Label = <div className="bg-red-900/80 text-[9px] px-1.5 py-0.5 rounded text-red-200 border border-red-700 mt-1 shadow whitespace-nowrap">AUX CRUSHER</div>;
+        }
     }
 
     return (
@@ -349,8 +365,6 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
   const mineVisible = isVisible(minePos.rot);
   const pilePos = getPosition(PILE_ANGLE, SURFACE_LEVEL);
   const pileVisible = isVisible(pilePos.rot);
-  const crusherPos = getPosition(CRUSHER_ANGLE, SURFACE_LEVEL);
-  const crusherVisible = isVisible(crusherPos.rot);
   
   const pileScale = Math.min(2, 0.5 + Math.sqrt(surfaceOre) * 0.1);
   const toughnessColor = `hsl(${Math.max(0, 40 - mineDepth)}, 70%, 30%)`;
@@ -431,7 +445,7 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
             }}
         >
              <div className="flex flex-col items-center transform -translate-y-6">
-                 <div className="bg-amber-900 border-2 border-amber-950 text-[10px] text-amber-100 px-2 py-0.5 rounded-sm font-serif shadow-lg">MINE</div>
+                 <div className="bg-amber-900 border-2 border-amber-950 text-[10px] text-amber-100 px-2 py-0.5 rounded-sm font-serif shadow-lg whitespace-nowrap">MINE</div>
                  <div className="w-0.5 h-4 bg-amber-950"></div>
              </div>
         </div>
@@ -453,36 +467,6 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
                     clipPath: 'polygon(0% 100%, 10% 40%, 40% 0%, 60% 0%, 90% 40%, 100% 100%)'
                 }}
             />
-            {/* No Label */}
-        </div>
-
-        <div 
-            className="absolute flex flex-col items-center cursor-pointer will-change-transform hover:scale-105 transition-opacity duration-300"
-            style={{
-                left: `calc(50% + ${crusherPos.x}px)`, top: `calc(50% + ${crusherPos.y}px)`,
-                transform: `translate(-50%, -50%) rotate(${crusherPos.rot}deg)`, zIndex: 26,
-                opacity: crusherVisible ? 1 : 0, pointerEvents: crusherVisible ? 'auto' : 'none'
-            }}
-            onPointerEnter={() => setHoveredCrusher(true)}
-            onPointerLeave={() => setHoveredCrusher(false)}
-        >
-             <div className="relative group mb-[2px]">
-                 <div className="w-16 h-12 bg-slate-700 border-2 border-slate-500 rounded-lg flex items-center justify-center shadow-lg relative z-10">
-                    <Settings className="text-slate-400 animate-spin-slow" size={24} />
-                 </div>
-                 {surfaceOre > 0 && <div className="absolute -top-4 left-1/2 w-2 h-2 bg-gray-400 rounded-full animate-ping opacity-50" />}
-             </div>
-             <div className="bg-slate-800 text-[10px] px-2 py-0.5 rounded text-slate-300 border border-slate-600 mt-[2px]">CRUSHER</div>
-             {hoveredCrusher && crusherVisible && (
-                <div 
-                    className="absolute bottom-full mb-8 w-48 bg-gray-900/95 border border-gray-600 rounded-lg p-3 shadow-2xl text-center pointer-events-none z-50"
-                    style={{ transform: `rotate(${-crusherPos.rot}deg)`, transformOrigin: 'center bottom' }}
-                >
-                    <div className="font-bold text-white">Ore Crusher</div>
-                    <div className="text-xs text-yellow-500 font-mono mb-1">Level 1</div>
-                    <div className="text-[10px] text-gray-300 leading-tight">Main processing unit. Converts surface ore into credits automatically.</div>
-                </div>
-             )}
         </div>
       </div>
 
