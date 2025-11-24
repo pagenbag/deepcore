@@ -8,7 +8,7 @@ import { UNIT_STATS, ORE_VALUE, INITIAL_SLOTS, BUILDING_COSTS, BASE_POPULATION, 
 const App: React.FC = () => {
   // Game State
   const [gameState, setGameState] = useState<GameState>({
-    credits: 10000,
+    credits: 10,
     miningPermits: 0,
     surfaceOre: 0,
     looseOreInMine: 0,
