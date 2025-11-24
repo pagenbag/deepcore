@@ -102,7 +102,7 @@ const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId,
              <Pickaxe className="text-gray-400" size={18} />
              <div>
                <div className="text-[10px] text-gray-500 uppercase font-bold tracking-widest leading-none">Depth</div>
-               <div className="text-lg font-mono text-white leading-none">{formatNumber(gameState.mineDepth)} m</div>
+               <div className="text-lg font-mono text-white leading-none">{formatNumber(gameState.mineDepth * 10)} m</div>
              </div>
            </div>
         </div>

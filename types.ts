@@ -11,6 +11,7 @@ export enum BuildingType {
   WORKSHOP = 'WORKSHOP', // Unlocks better units
   CRUSHER = 'CRUSHER', // Passive ore processing (Auxiliary)
   REACTOR = 'REACTOR', // Global speed boost
+  TRAINING = 'TRAINING', // Unit stat upgrades
 }
 
 export type BuildingStatus = 'EMPTY' | 'PENDING' | 'UNDER_CONSTRUCTION' | 'COMPLETED';
@@ -30,6 +31,7 @@ export interface Entity {
   
   position: { x: number; y: number; angle: number; radius: number };
   targetDepth: number;
+  targetTunnelIdx: number | null; // null/-1 for main shaft bottom, 0+ for specific tunnel
   inventory: number;
   maxCapacity: number;
   energy: number;
@@ -85,6 +87,13 @@ export interface GameState {
 
   // Debug
   globalMultiplier: number;
+  
+  // Global Upgrades
+  unitUpgrades: {
+      speedLevel: number;
+      capacityLevel: number;
+      energyLevel: number;
+  };
 }
 
 export const ASTEROID_RADIUS = 400; // Radius in pixels

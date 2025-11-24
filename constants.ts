@@ -16,6 +16,7 @@ export const BUILDING_COSTS: Record<BuildingType, { baseCost: number; scale: num
   [BuildingType.DORMITORY]: { baseCost: 100, scale: 1.5, label: 'Habitat', desc: 'Increases population cap (+5)' },
   [BuildingType.WORKSHOP]: { baseCost: 500, scale: 2.0, label: 'Tech Lab', desc: 'Allows advanced unit production' },
   [BuildingType.CRUSHER]: { baseCost: 1500, scale: 1.5, label: 'Ore Crusher', desc: 'Passive ore processing' },
+  [BuildingType.TRAINING]: { baseCost: 2500, scale: 2.0, label: 'Training Center', desc: 'Upgrade unit stats globally' },
   [BuildingType.REACTOR]: { baseCost: 5000, scale: 2.5, label: 'Core Reactor', desc: 'Speed up all units' },
 };
 
@@ -24,6 +25,7 @@ export const UNIT_UNLOCKS: Record<BuildingType, UnitType[]> = {
   [BuildingType.DORMITORY]: [UnitType.MINER_BASIC, UnitType.CARRIER_ROVER],
   [BuildingType.WORKSHOP]: [UnitType.MINER_DRILL, UnitType.CARRIER_DRONE],
   [BuildingType.CRUSHER]: [],
+  [BuildingType.TRAINING]: [],
   [BuildingType.REACTOR]: [],
 };
 
@@ -33,7 +35,7 @@ export interface BuildingUpgrade {
     label: string;
     cost: number;
     desc: string;
-    effect?: { maxWorkersAdd?: number; maxPopAdd?: number };
+    effect?: { maxWorkersAdd?: number; maxPopAdd?: number; statBoost?: 'speed' | 'capacity' | 'energy' };
 }
 
 export const BUILDING_UPGRADES: Record<BuildingType, BuildingUpgrade[]> = {
@@ -46,9 +48,31 @@ export const BUILDING_UPGRADES: Record<BuildingType, BuildingUpgrade[]> = {
         { id: 'dorm_exp_1', label: 'Expansion Module', cost: 500, desc: 'Adds 5 extra population capacity.', effect: { maxPopAdd: 5 } },
         { id: 'dorm_exp_2', label: 'High-Density Bunks', cost: 2000, desc: 'Adds another 5 population capacity.', effect: { maxPopAdd: 5 } }
     ],
+    [BuildingType.TRAINING]: [
+        { id: 'train_speed_1', label: 'Fitness Training', cost: 2000, desc: '+20% Move Speed for all units.', effect: { statBoost: 'speed' } },
+        { id: 'train_cap_1', label: 'Better Backpacks', cost: 3000, desc: '+20% Carry Capacity for all units.', effect: { statBoost: 'capacity' } },
+        { id: 'train_nrg_1', label: 'High-V Batteries', cost: 2500, desc: '+20% Max Energy for all units.', effect: { statBoost: 'energy' } },
+        { id: 'train_speed_2', label: 'Exoskeletons', cost: 8000, desc: '+20% Move Speed for all units.', effect: { statBoost: 'speed' } },
+        { id: 'train_cap_2', label: 'Anti-Grav Pallets', cost: 12000, desc: '+20% Carry Capacity for all units.', effect: { statBoost: 'capacity' } },
+    ],
     [BuildingType.WORKSHOP]: [],
     [BuildingType.REACTOR]: []
 };
+
+// Tunnel Config
+export interface TunnelDef {
+    depthPx: number; // Where it starts vertically (0-300 scale)
+    angleOffset: number; // Degrees (+ is right, - is left)
+    width: number; // How wide the tunnel is visually
+}
+
+export const TUNNEL_DEFINITIONS: TunnelDef[] = [
+    { depthPx: 60, angleOffset: -12, width: 30 },
+    { depthPx: 120, angleOffset: 15, width: 40 },
+    { depthPx: 180, angleOffset: -18, width: 35 },
+    { depthPx: 240, angleOffset: 12, width: 30 },
+    { depthPx: 280, angleOffset: -10, width: 25 },
+];
 
 export const ORE_VALUE = 1; // Credits per ore
 export const CRUSHER_WORKER_BONUS = 20; // Extra ore per second if worker is present (scaled by energy)

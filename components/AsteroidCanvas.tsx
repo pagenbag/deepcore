@@ -2,7 +2,7 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { GameState, ASTEROID_RADIUS, SURFACE_LEVEL, UnitType, BuildingType, PILE_ANGLE, MINE_ANGLE } from '../types';
 import { RotateCw, RotateCcw, Settings, BatteryWarning, AlertTriangle } from 'lucide-react';
-import { BUILDING_COSTS } from '../constants';
+import { BUILDING_COSTS, TUNNEL_DEFINITIONS } from '../constants';
 
 interface AsteroidCanvasProps {
   gameState: GameState;
@@ -47,27 +47,38 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
       return arr;
   }, []);
 
-  // Root-like Mine Path Generator
+  // Updated Mine Path Generator (With Horizontal Tunnels)
   const minePath = useMemo(() => {
-      const segments = Math.max(2, Math.min(50, Math.ceil(mineDepth / 5)));
-      let d = `M 0 0 `;
-      const depthPx = Math.min(300, 20 + mineDepth * 1.5);
-      const segmentHeight = depthPx / segments;
+      const currentDepthPx = Math.min(300, 20 + mineDepth * 1.5);
+      const topWidth = 26;
+      const bottomWidth = 34; 
       
-      for(let i=1; i<=segments; i++) {
-          const xOffset = Math.sin(i * 0.5) * 5;
-          d += `L ${xOffset} ${i * segmentHeight} `;
-      }
-      // Widen at bottom
-      const lastX = Math.sin(segments * 0.5) * 5;
-      d += `L ${lastX - 10} ${depthPx} L ${lastX + 10} ${depthPx} L ${lastX} ${depthPx} `; 
-      
-      // Trace back up
-      for(let i=segments; i>=1; i--) {
-         const xOffset = Math.sin(i * 0.5) * 5;
-         d += `L ${xOffset + 8} ${i * segmentHeight} `;
-      }
-      d += `Z`;
+      // Start main shaft
+      let d = `M -${topWidth/2} 0 `;
+      d += `L -${bottomWidth/2} ${currentDepthPx} `; // Left down
+      d += `L ${bottomWidth/2} ${currentDepthPx} `; // Bottom
+      d += `L ${topWidth/2} 0 `; // Right up
+      d += `Z `; // Close shaft
+
+      // Tunnels
+      TUNNEL_DEFINITIONS.forEach(tun => {
+          if (currentDepthPx > tun.depthPx + 10) {
+              // Draw tunnel box attached to shaft
+              const y = tun.depthPx;
+              const h = 20; // height of tunnel
+              const w = tun.width;
+              // If angleOffset is positive, tunnel is on Right
+              if (tun.angleOffset > 0) {
+                  // Right Tunnel
+                  const startX = (topWidth/2) + ((bottomWidth-topWidth)/2) * (y/300); // Approx width at depth
+                  d += `M ${startX} ${y} L ${startX + w} ${y} L ${startX + w} ${y+h} L ${startX} ${y+h} Z `;
+              } else {
+                  // Left Tunnel
+                  const startX = -((topWidth/2) + ((bottomWidth-topWidth)/2) * (y/300));
+                  d += `M ${startX} ${y} L ${startX - w} ${y} L ${startX - w} ${y+h} L ${startX} ${y+h} Z `;
+              }
+          }
+      });
       
       return d;
   }, [mineDepth]);
@@ -115,7 +126,24 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
   
   // Units (Z-Index 40)
   const renderedUnits = units.map((unit) => {
-    const pos = getPosition(unit.position.angle, unit.position.radius);
+    // Offset logic for tunnels
+    let visualAngle = unit.position.angle;
+    
+    // Convert logic coordinates to visual coordinates for units deep in mine
+    // Logic uses angle + radius. Radius maps directly. Angle maps to offset.
+    // However, SVG is drawn flat on top.
+    // If we are "inside" the asteroid, the standard getPosition works fine because it rotates everything.
+    // The trick is the mine is drawn static in the asteroid frame.
+    // So unit.position.angle works naturally if the mine tunnels are angled relative to center.
+    // But our Tunnels are drawn as horizontal rectangles in the SVG frame.
+    // So we need to ensure unit.position.angle actually maps to that visual offset.
+    // The Game Logic updates `angle` to be +/- 15 degrees.
+    // `getPosition` rotates by that angle.
+    // At radius ~350, 1 degree is approx 6 pixels.
+    // So 15 degrees is 90 pixels offset.
+    // This matches the visual tunnel logic fairly well.
+
+    const pos = getPosition(visualAngle, unit.position.radius);
     const visible = isVisible(pos.rot);
     
     const energyRatio = unit.energy / unit.maxEnergy;
@@ -136,29 +164,23 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
         </div>;
     }
     if (unit.type === UnitType.MINER_DRILL) {
-        // Upside down triangle
         size = 'w-5 h-6';
         zIndex = unit.carriedBy ? 41 : 35; 
         
         let transformY = '-translate-y-1/2';
-        // If being carried, lift up
         if (unit.carriedBy) transformY = '-translate-y-4';
-        // If Operating, appear BELOW carrier
         if (unit.state === 'OPERATING_DRILL') {
             zIndex = 39;
-            transformY = 'translate-y-2'; // Push down
+            transformY = 'translate-y-2';
         }
 
         Shape = (
             <div className={`w-full h-full relative drop-shadow-lg ${unit.state === 'OPERATING_DRILL' ? 'animate-vibrate' : ''}`}>
-               {/* Body */}
                <div 
                  className="w-full h-full bg-orange-700 border-2 border-orange-900"
                  style={{ clipPath: 'polygon(0 0, 100% 0, 50% 100%)' }}
                ></div>
-               {/* Details */}
                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-4 h-1 bg-gray-400"></div>
-               {/* Spinning bit if operating */}
                {unit.state === 'OPERATING_DRILL' && (
                    <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-2 w-1 h-3 bg-white blur-[1px] animate-ping"></div>
                )}
@@ -257,9 +279,7 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
     else if (slot.type === BuildingType.DORMITORY) {
         const pop = slot.occupants.length;
         const upgraded = slot.level > 1;
-        // Make scale upgrade more dramatic
         const scale = upgraded ? 'scale-125' : 'scale-100'; 
-        
         Visual = (
             <div className={`flex flex-col items-center relative -mb-1 animate-[fadeIn_0.5s_ease-out] transition-transform origin-bottom duration-500 ${scale}`}>
                  <div className="w-12 h-10 bg-blue-600 rounded-t-full border-4 border-blue-800 relative overflow-hidden shadow-lg">
@@ -290,6 +310,18 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
         );
         Label = <div className="bg-purple-900/80 text-[9px] px-1.5 py-0.5 rounded text-purple-200 border border-purple-700 mt-1 shadow whitespace-nowrap">TECH LAB</div>;
     }
+    else if (slot.type === BuildingType.TRAINING) {
+        Visual = (
+            <div className="flex flex-col items-center relative -mb-1 animate-[fadeIn_0.5s_ease-out]">
+                <div className="w-14 h-8 bg-green-900 border-2 border-green-700 rounded-lg relative overflow-hidden shadow-lg flex items-center justify-center">
+                     <div className="w-8 h-2 bg-green-500/30 mb-1"></div>
+                     <div className="w-8 h-2 bg-green-500/30"></div>
+                </div>
+                <div className="w-14 h-2 bg-slate-800 mt-[-2px]"></div>
+            </div>
+        );
+        Label = <div className="bg-green-900/80 text-[9px] px-1.5 py-0.5 rounded text-green-200 border border-green-700 mt-1 shadow whitespace-nowrap">GYM</div>;
+    }
     else if (slot.type === BuildingType.REACTOR) {
         Visual = (
             <div className="flex flex-col items-center relative -mb-1 animate-[fadeIn_0.5s_ease-out]">
@@ -302,9 +334,7 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
         Label = <div className="bg-yellow-900/80 text-[9px] px-1.5 py-0.5 rounded text-yellow-200 border border-yellow-700 mt-1 shadow whitespace-nowrap">REACTOR</div>;
     }
     else if (slot.type === BuildingType.CRUSHER) {
-        // Distinguish Main vs Aux
         if (slot.id === 0) {
-            // Main Crusher (Grey/Gear)
             Visual = (
                 <div className="flex flex-col items-center relative -mb-1 animate-[fadeIn_0.5s_ease-out]">
                      <div className="relative group mb-[2px]">
@@ -318,7 +348,6 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
             );
             Label = <div className="bg-slate-800 text-[9px] px-2 py-0.5 rounded text-slate-300 border border-slate-600 mt-[2px] shadow whitespace-nowrap">ORE CRUSHER</div>;
         } else {
-            // Aux Crusher (Red)
             Visual = (
                  <div className="flex flex-col items-center relative -mb-1 animate-[fadeIn_0.5s_ease-out]">
                     <div className="w-12 h-8 bg-red-900 border-2 border-red-700 rounded-sm flex items-center justify-center shadow-lg relative">
@@ -404,14 +433,22 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
               </div>
           </div>
       )}
+      {/* Subtle Tax Pay Effect */}
       {showTaxPayEffect && (
-          <div className="absolute top-32 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
-              <div className="relative">
-                 <div className="absolute top-0 left-0 w-32 h-32 bg-yellow-400 rounded-full blur-xl opacity-20 animate-ping -translate-x-1/2 -translate-y-1/2"></div>
-                 {Array.from({length: 10}).map((_, i) => (
-                    <div key={i} className="absolute text-green-400 font-bold text-xl animate-[fall_1s_ease-out_forwards]" style={{ left: `${Math.random()*100 - 50}px`, top: `${Math.random()*50}px` }}>$</div>
-                 ))}
-              </div>
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 z-40 pointer-events-none w-full h-64 overflow-hidden">
+             {Array.from({length: 8}).map((_, i) => (
+                <div 
+                    key={i} 
+                    className="absolute text-yellow-400 font-mono text-sm opacity-0"
+                    style={{ 
+                        left: `calc(50% + ${Math.random() * 100 - 50}px)`, 
+                        top: '40px',
+                        animation: `taxFall 2.5s ease-out forwards ${i * 0.1}s` 
+                    }}
+                >
+                    $
+                </div>
+             ))}
           </div>
       )}
       
@@ -432,9 +469,9 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
               />
           ))}
           
-          {/* THE MINE SHAFT - Root Style */}
-          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 overflow-visible" style={{ height: '300px', width: '20px' }}>
-              <svg width="40" height="350" viewBox="0 0 40 350" className="absolute top-0 left-1/2 -translate-x-1/2">
+          {/* THE MINE SHAFT - Branching Style */}
+          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 overflow-visible" style={{ height: '300px', width: '100px' }}>
+              <svg width="200" height="400" viewBox="-100 0 200 400" className="absolute top-0 left-1/2 -translate-x-1/2 overflow-visible">
                   <path 
                     d={minePath} 
                     fill={`url(#mineGradient)`} 
@@ -460,7 +497,7 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
                             key={i} 
                             className="absolute w-1.5 h-1.5 bg-yellow-200 rounded-full shadow-sm"
                             style={{ 
-                                left: `${50 + (Math.sin(i * 123) * 40)}%`, // Random-ish distribution around center
+                                left: `${50 + (Math.sin(i * 123) * 60)}%`, // Spread wider
                                 top: `${Math.abs(Math.cos(i * 321) * 5)}px`
                             }}
                         ></div>

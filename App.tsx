@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import AsteroidCanvas from './components/AsteroidCanvas';
 import Overlay from './components/Overlay';
 import { GameState, UnitType, BuildingType, Entity, SURFACE_LEVEL, MINE_ANGLE, PILE_ANGLE, BuildingSlot, BuildingStatus } from './types';
-import { UNIT_STATS, ORE_VALUE, INITIAL_SLOTS, BUILDING_COSTS, BASE_POPULATION, POPULATION_PER_HABITAT, ENERGY_DRAIN_RATE, ENERGY_RECHARGE_RATE, BUILD_SPEED_BASE, COST_SCALING_FACTOR, DRILL_WEIGHT_SPEED_PENALTY, DRILL_PRODUCTION_RATE, BUILDING_UPGRADES, CRUSHER_WORKER_BONUS, TAX_INTERVAL, TAX_INITIAL_AMOUNT, TAX_SCALE } from './constants';
+import { UNIT_STATS, ORE_VALUE, INITIAL_SLOTS, BUILDING_COSTS, BASE_POPULATION, POPULATION_PER_HABITAT, ENERGY_DRAIN_RATE, ENERGY_RECHARGE_RATE, BUILD_SPEED_BASE, COST_SCALING_FACTOR, DRILL_WEIGHT_SPEED_PENALTY, DRILL_PRODUCTION_RATE, BUILDING_UPGRADES, CRUSHER_WORKER_BONUS, TAX_INTERVAL, TAX_INITIAL_AMOUNT, TAX_SCALE, TUNNEL_DEFINITIONS } from './constants';
 
 const App: React.FC = () => {
   // Game State
@@ -24,7 +24,8 @@ const App: React.FC = () => {
     taxAmount: TAX_INITIAL_AMOUNT,
     taxDue: false,
     lastTaxPaid: 0,
-    globalMultiplier: 1
+    globalMultiplier: 1,
+    unitUpgrades: { speedLevel: 0, capacityLevel: 0, energyLevel: 0 }
   });
 
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
@@ -39,6 +40,21 @@ const App: React.FC = () => {
       const base = UNIT_STATS[type].cost;
       return Math.floor(base * Math.pow(COST_SCALING_FACTOR, count));
   };
+
+  // --- Helper: Get Effective Unit Stats (Applying Global Upgrades) ---
+  const getEffectiveStats = useCallback((type: UnitType, currentUpgrades: GameState['unitUpgrades']) => {
+      const base = UNIT_STATS[type];
+      const speedMult = 1 + (currentUpgrades.speedLevel * 0.2);
+      const capMult = 1 + (currentUpgrades.capacityLevel * 0.2);
+      const nrgMult = 1 + (currentUpgrades.energyLevel * 0.2);
+      
+      return {
+          ...base,
+          speed: base.speed * speedMult,
+          capacity: Math.floor(base.capacity * capMult),
+          maxEnergy: Math.floor(base.maxEnergy * nrgMult)
+      };
+  }, []);
 
   // --- Helper: Get Building Capacity ---
   const getHabitatCapacity = (b: BuildingSlot) => {
@@ -63,7 +79,7 @@ const App: React.FC = () => {
     let spawnAngle = MINE_ANGLE;
     let homeId: number | null = null;
 
-    const stats = UNIT_STATS[type];
+    const stats = getEffectiveStats(type, gameState.unitUpgrades);
     
     // Logic: Find Home
     if (stats.isTool) {
@@ -73,7 +89,6 @@ const App: React.FC = () => {
         spawnAngle = workshop.angle;
     } else {
         // Miners/Carriers need a Habitat
-        // Find first habitat with space
         const availableHabitat = gameState.buildings.find(b => {
             if (b.type !== BuildingType.DORMITORY || b.status !== 'COMPLETED') return false;
             const capacity = getHabitatCapacity(b);
@@ -92,6 +107,7 @@ const App: React.FC = () => {
       state: 'IDLE', 
       position: { x: 0, y: 0, angle: spawnAngle, radius: SURFACE_LEVEL },
       targetDepth: gameState.mineDepth,
+      targetTunnelIdx: null,
       inventory: 0,
       maxCapacity: stats.capacity,
       energy: stats.maxEnergy,
@@ -106,7 +122,6 @@ const App: React.FC = () => {
     };
 
     setGameState(prev => {
-        // Update building occupancy if it's a unit
         const newBuildings = prev.buildings.map(b => {
             if (b.id === homeId) {
                 return { ...b, occupants: [...b.occupants, newUnit.id] };
@@ -124,7 +139,7 @@ const App: React.FC = () => {
   };
 
   const constructBuilding = (slotId: number, type: BuildingType) => {
-    if (gameState.taxDue) return; // Blocked by tax
+    if (gameState.taxDue) return;
 
     const existingDorms = gameState.buildings.filter(b => b.type === BuildingType.DORMITORY).length;
     const isFreeHabitat = type === BuildingType.DORMITORY && existingDorms === 0;
@@ -135,7 +150,6 @@ const App: React.FC = () => {
     setGameState(prev => {
         const newBuildings = prev.buildings.map(b => {
           if (b.id !== slotId) return b;
-          
           return { 
             ...b, 
             type, 
@@ -160,7 +174,7 @@ const App: React.FC = () => {
   };
 
   const purchaseUpgrade = (slotId: number, upgradeId: string) => {
-      if (gameState.taxDue) return; // Blocked by tax
+      if (gameState.taxDue) return;
 
       const slot = gameState.buildings.find(b => b.id === slotId);
       if (!slot || !slot.type) return;
@@ -172,32 +186,47 @@ const App: React.FC = () => {
       if (gameState.credits < upgrade.cost) return;
 
       setGameState(prev => {
+          let newUpgrades = { ...prev.unitUpgrades };
+          let upgradedUnits = [...prev.units];
+
+          // Apply Global Stat Upgrades if Training Center
+          if (slot.type === BuildingType.TRAINING && upgrade.effect?.statBoost) {
+              if (upgrade.effect.statBoost === 'speed') newUpgrades.speedLevel++;
+              if (upgrade.effect.statBoost === 'capacity') newUpgrades.capacityLevel++;
+              if (upgrade.effect.statBoost === 'energy') newUpgrades.energyLevel++;
+
+              // Update existing units immediately
+              upgradedUnits = upgradedUnits.map(u => {
+                  const newStats = getEffectiveStats(u.type, newUpgrades);
+                  return {
+                      ...u,
+                      speed: newStats.speed,
+                      maxCapacity: newStats.capacity,
+                      maxEnergy: newStats.maxEnergy
+                      // Note: We don't heal energy, just cap
+                  };
+              });
+          }
+
           const newBuildings = prev.buildings.map(b => {
               if (b.id !== slotId) return b;
               
-              const newUpgrades = [...b.upgrades, upgradeId];
+              const bUpgrades = [...b.upgrades, upgradeId];
               let newMaxWorkers = b.maxWorkers;
               let newLevel = b.level;
               
-              // Apply Effects
-              if (upgrade.effect?.maxWorkersAdd) {
-                  newMaxWorkers += upgrade.effect.maxWorkersAdd;
-              }
-              // Just generic level up for visuals
+              if (upgrade.effect?.maxWorkersAdd) newMaxWorkers += upgrade.effect.maxWorkersAdd;
               newLevel += 1;
 
-              return {
-                  ...b,
-                  upgrades: newUpgrades,
-                  maxWorkers: newMaxWorkers,
-                  level: newLevel
-              };
+              return { ...b, upgrades: bUpgrades, maxWorkers: newMaxWorkers, level: newLevel };
           });
 
           return {
               ...prev,
               credits: prev.credits - upgrade.cost,
-              buildings: newBuildings
+              buildings: newBuildings,
+              unitUpgrades: newUpgrades,
+              units: upgradedUnits
           };
       });
   };
@@ -206,7 +235,6 @@ const App: React.FC = () => {
       setGameState(prev => {
           const newBuildings = prev.buildings.map(b => {
               if (b.id !== slotId) return b;
-              // Ensure we don't exceed max
               const validCount = Math.max(0, Math.min(targetCount, b.maxWorkers));
               return { ...b, requestedWorkers: validCount };
           });
@@ -214,36 +242,20 @@ const App: React.FC = () => {
       });
   };
 
-  // --- Debug Tools ---
-  const debugAddMoney = () => {
-      setGameState(p => ({ ...p, credits: p.credits + 1000 }));
-  };
-
-  const debugToggleMultiplier = () => {
-      setGameState(p => ({ ...p, globalMultiplier: p.globalMultiplier >= 8 ? 1 : p.globalMultiplier * 2 }));
-  };
+  const debugAddMoney = () => setGameState(p => ({ ...p, credits: p.credits + 1000 }));
+  const debugToggleMultiplier = () => setGameState(p => ({ ...p, globalMultiplier: p.globalMultiplier >= 8 ? 1 : p.globalMultiplier * 2 }));
 
   const handleSelectSlot = (slotId: number) => {
       setSelectedSlot(slotId);
       const slot = gameState.buildings.find(b => b.id === slotId);
-      if (slot) {
-          setGameState(prev => ({
-              ...prev,
-              targetRotation: -slot.angle
-          }));
-      }
+      if (slot) setGameState(prev => ({ ...prev, targetRotation: -slot.angle }));
   };
 
   const handleManualRotate = (val: number | ((prev: number) => number)) => {
-      setGameState(p => ({
-          ...p, 
-          targetRotation: null, 
-          rotation: typeof val === 'function' ? val(p.rotation) : val
-      }));
+      setGameState(p => ({ ...p, targetRotation: null, rotation: typeof val === 'function' ? val(p.rotation) : val }));
   };
 
-  // --- The Game Loop ---
-
+  // --- Game Loop ---
   const tick = useCallback(() => {
     setGameState(prev => {
       const now = Date.now();
@@ -263,20 +275,14 @@ const App: React.FC = () => {
       let newPermits = prev.miningPermits;
 
       // Tax Logic
-      if (!newTaxDue) {
-          if (now >= newTaxTimer) {
-              newTaxDue = true;
-          }
-      }
-      if (newTaxDue) {
-          if (newCredits >= newTaxAmount) {
-              newCredits -= newTaxAmount;
-              newTaxDue = false;
-              newTaxAmount = Math.floor(newTaxAmount * TAX_SCALE);
-              newTaxTimer = now + TAX_INTERVAL;
-              newLastTaxPaid = now;
-              newPermits += 1;
-          }
+      if (!newTaxDue && now >= newTaxTimer) newTaxDue = true;
+      if (newTaxDue && newCredits >= newTaxAmount) {
+          newCredits -= newTaxAmount;
+          newTaxDue = false;
+          newTaxAmount = Math.floor(newTaxAmount * TAX_SCALE);
+          newTaxTimer = now + TAX_INTERVAL;
+          newLastTaxPaid = now;
+          newPermits += 1;
       }
 
       const newBuildings = prev.buildings.map(b => ({ ...b }));
@@ -290,44 +296,33 @@ const App: React.FC = () => {
           else newRotation += diff * 5 * dt; 
       }
 
-      // Calculate Max Pop (Including Upgrades)
+      // Max Pop
       const dorms = newBuildings.filter(b => b.type === BuildingType.DORMITORY && b.status === 'COMPLETED');
       let calculatedMaxPop = BASE_POPULATION;
-      dorms.forEach(d => {
-          calculatedMaxPop += getHabitatCapacity(d);
-      });
+      dorms.forEach(d => calculatedMaxPop += getHabitatCapacity(d));
 
-      // Helper: Movement
+      // Move Helper
       const moveUnit = (u: Entity, targetAngle: number, targetRadius: number, speedMult = 1) => {
          let arrivedAngle = false;
          let arrivedRadius = false;
-
          const effectiveSpeed = u.speed * multiplier;
-
-         // Angle
+         
          let diff = targetAngle - u.position.angle;
          while (diff > 180) diff -= 360;
          while (diff < -180) diff += 360;
-         if (Math.abs(diff) < 0.5) {
-             arrivedAngle = true;
-         } else {
-             u.position.angle += (diff > 0 ? 1 : -1) * effectiveSpeed * speedMult * 15 * dt;
-         }
+         
+         if (Math.abs(diff) < 0.5) arrivedAngle = true;
+         else u.position.angle += (diff > 0 ? 1 : -1) * effectiveSpeed * speedMult * 15 * dt;
 
-         // Radius
          const radDiff = targetRadius - u.position.radius;
-         if (Math.abs(radDiff) < 2) {
-             arrivedRadius = true;
-         } else {
-             u.position.radius += (radDiff > 0 ? 1 : -1) * effectiveSpeed * speedMult * 30 * dt;
-         }
+         if (Math.abs(radDiff) < 2) arrivedRadius = true;
+         else u.position.radius += (radDiff > 0 ? 1 : -1) * effectiveSpeed * speedMult * 30 * dt;
 
          return arrivedAngle && arrivedRadius;
       };
 
-      // Helper: Find Job
+      // Job Helper
       const assignJob = (u: Entity) => {
-          // 1. Construction
           const buildJob = newBuildings.find(b => (b.status === 'PENDING' || b.status === 'UNDER_CONSTRUCTION') && b.assignedUnitId === null);
           if (buildJob) {
               buildJob.assignedUnitId = u.id;
@@ -336,12 +331,7 @@ const App: React.FC = () => {
               return;
           }
 
-          // 2. Work in Building (if enabled)
-          const workJob = newBuildings.find(b => 
-              b.status === 'COMPLETED' && 
-              b.requestedWorkers > 0 &&
-              b.assignedWorkers.length < b.requestedWorkers
-          );
+          const workJob = newBuildings.find(b => b.status === 'COMPLETED' && b.requestedWorkers > 0 && b.assignedWorkers.length < b.requestedWorkers);
           if (workJob) {
               workJob.assignedWorkers.push(u.id);
               u.workingAtBuildingId = workJob.id;
@@ -349,60 +339,41 @@ const App: React.FC = () => {
               return;
           }
 
-          // 3. Unattended Drill (If not a carrier drone)
-          // Find a drill that is IDLE (not carried, not operating)
           const idleDrill = prev.units.find(d => d.type === UnitType.MINER_DRILL && d.state === 'IDLE' && d.carriedBy === null);
           if (idleDrill) {
               u.state = 'MOVING_TO_DRILL';
               return;
           }
 
-          // 4. Haul Loose Ore
-          // If there's a lot of loose ore, prioritize picking it up
           if (newLooseOreInMine > 10) {
               u.state = 'PICKUP_LOOSE_ORE'; 
               return;
           }
 
-          // 5. Manual Mining (Default)
           u.state = 'MOVING_TO_MINE';
       };
 
-      // --- PRIMARY UNIT LOOP ---
-
-      // Step 0: Carrier <-> Tool Handshake
-      // Ensure that if a Carrier has a carryingId, the Tool knows it is carriedBy that Carrier.
-      const carrierMap = new Map<string, string>(); // ToolID -> CarrierID
-      prev.units.forEach(u => {
-          if (u.carryingId) carrierMap.set(u.carryingId, u.id);
-      });
-
+      // 0. Sync Drill Ownership
+      const carrierMap = new Map<string, string>();
+      prev.units.forEach(u => { if (u.carryingId) carrierMap.set(u.carryingId, u.id); });
       const syncedUnits = prev.units.map(unit => {
           const u = { ...unit };
-          // If I am a tool and someone claims to carry me, update my state
-          if (carrierMap.has(u.id)) {
-              u.carriedBy = carrierMap.get(u.id)!;
-          }
-          // If I am a carrier, but my tool doesn't exist anymore (bug safety), clear it
-          if (u.carryingId && !prev.units.find(t => t.id === u.carryingId)) {
-              u.carryingId = null;
-          }
+          if (carrierMap.has(u.id)) u.carriedBy = carrierMap.get(u.id)!;
+          if (u.carryingId && !prev.units.find(t => t.id === u.carryingId)) u.carryingId = null;
           return u;
       });
 
-      // Step 1: Pre-process Position Sync
+      // 1. Sync Drill Positions
       const preProcessedUnits = syncedUnits.map(unit => {
           const u = { ...unit };
-          // If this is a tool, sync it with its carrier immediately
           if (UNIT_STATS[u.type].isTool) {
              if (u.carriedBy) {
                 const carrier = syncedUnits.find(c => c.id === u.carriedBy);
                 if (carrier) {
                     u.position = { ...carrier.position };
-                    if (carrier.state === 'OPERATING_DRILL') u.state = 'OPERATING_DRILL';
-                    else u.state = 'IDLE'; // Just being carried
+                    u.state = carrier.state === 'OPERATING_DRILL' ? 'OPERATING_DRILL' : 'IDLE';
                 } else {
-                    u.carriedBy = null; // Carrier lost
+                    u.carriedBy = null;
                     u.state = 'IDLE';
                 }
              } else {
@@ -416,10 +387,7 @@ const App: React.FC = () => {
       const newUnits = preProcessedUnits.map(unit => {
           const u = { ...unit };
           
-          // --- TOOL/DRILL LOGIC ---
           if (UNIT_STATS[u.type].isTool) {
-             // If Operating, generate ore
-             // Note: State was synced in pre-process, so this is current
              if (u.state === 'OPERATING_DRILL') {
                  const produced = DRILL_PRODUCTION_RATE * multiplier * dt;
                  newLooseOreInMine += produced;
@@ -429,44 +397,41 @@ const App: React.FC = () => {
              return u; 
           }
 
-          // --- MINER/WORKER LOGIC ---
-
-          // Energy Drain
+          // Energy
           if (u.state !== 'CHARGING' && u.state !== 'IDLE' && u.homeBuildingId) {
               const drainMult = u.carryingId ? 1.5 : 1;
               u.energy -= ENERGY_DRAIN_RATE * drainMult * dt;
           }
 
-          // Critical Energy Logic
+          // Low Energy Check
           if (u.energy <= 0 && u.state !== 'CHARGING' && u.state !== 'MOVING_TO_HOME') {
-              // DROP EVERYTHING IMMEDIATELY
-              
-              // 1. Drop Tool (Drill)
+              let canGoHome = true;
               if (u.carryingId) {
-                  // We need to mutate the actual drill in the array to ensure it drops NOW
-                  const drill = preProcessedUnits.find(d => d.id === u.carryingId);
-                  if (drill) {
-                      drill.carriedBy = null;
-                      drill.state = 'IDLE';
-                      drill.position = { ...u.position }; // Drop where we stand
+                  // If carrying tool, MUST bring to surface first
+                  if (u.position.radius < SURFACE_LEVEL - 5) {
+                      canGoHome = false;
+                      if (u.state !== 'EXITING_MINE') u.state = 'EXITING_MINE';
+                  } else {
+                      // On surface, drop
+                      const drill = preProcessedUnits.find(d => d.id === u.carryingId);
+                      if (drill) {
+                          drill.carriedBy = null;
+                          drill.state = 'IDLE';
+                          drill.position = { ...u.position, radius: SURFACE_LEVEL };
+                      }
+                      u.carryingId = null;
                   }
-                  u.carryingId = null;
-              }
-              
-              // 2. Drop Construction Job
-              const job = newBuildings.find(b => b.assignedUnitId === u.id);
-              if (job) job.assignedUnitId = null;
-
-              // 3. Drop Building Work
-              if (u.workingAtBuildingId !== null) {
-                  const b = newBuildings.find(bd => bd.id === u.workingAtBuildingId);
-                  if (b) {
-                      b.assignedWorkers = b.assignedWorkers.filter(id => id !== u.id);
+              } else {
+                  // Clean up jobs
+                  const job = newBuildings.find(b => b.assignedUnitId === u.id);
+                  if (job) job.assignedUnitId = null;
+                  if (u.workingAtBuildingId !== null) {
+                      const b = newBuildings.find(bd => bd.id === u.workingAtBuildingId);
+                      if (b) b.assignedWorkers = b.assignedWorkers.filter(id => id !== u.id);
+                      u.workingAtBuildingId = null;
                   }
-                  u.workingAtBuildingId = null;
               }
-
-              u.state = 'MOVING_TO_HOME';
+              if (canGoHome) u.state = 'MOVING_TO_HOME';
           }
 
           // State Machine
@@ -478,16 +443,26 @@ const App: React.FC = () => {
               case 'MOVING_TO_HOME':
                   const home = newBuildings.find(b => b.id === u.homeBuildingId);
                   const homeAngle = home ? home.angle : MINE_ANGLE;
-                  const isOnSurface = Math.abs(u.position.radius - SURFACE_LEVEL) < 3;
-
-                  if (!isOnSurface && u.position.radius < SURFACE_LEVEL) {
-                      u.position.angle = MINE_ANGLE; 
+                  
+                  // If we are deep underground, go to shaft center first, then up
+                  if (u.position.radius < SURFACE_LEVEL - 5) {
+                      // Still inside
                       moveUnit(u, MINE_ANGLE, SURFACE_LEVEL);
                   } else {
+                      // On surface
                       u.position.radius = SURFACE_LEVEL;
                       if (moveUnit(u, homeAngle, SURFACE_LEVEL)) {
                           u.state = 'CHARGING';
-                          u.carryingId = null; 
+                          // Sanity drop check
+                          if (u.carryingId) {
+                               const drill = preProcessedUnits.find(d => d.id === u.carryingId);
+                               if (drill) {
+                                   drill.carriedBy = null;
+                                   drill.state = 'IDLE';
+                                   drill.position = { ...u.position };
+                               }
+                               u.carryingId = null;
+                          }
                           u.workingAtBuildingId = null;
                       }
                   }
@@ -503,20 +478,14 @@ const App: React.FC = () => {
 
               case 'MOVING_TO_BUILD':
                   const job = newBuildings.find(b => b.assignedUnitId === u.id);
-                  if (!job || job.status === 'COMPLETED') {
-                      u.state = 'IDLE';
-                  } else {
-                      if (moveUnit(u, job.angle, SURFACE_LEVEL)) {
-                          u.state = 'BUILDING';
-                      }
-                  }
+                  if (!job || job.status === 'COMPLETED') u.state = 'IDLE';
+                  else if (moveUnit(u, job.angle, SURFACE_LEVEL)) u.state = 'BUILDING';
                   break;
 
               case 'BUILDING':
                   const buildJob = newBuildings.find(b => b.assignedUnitId === u.id);
-                  if (!buildJob) {
-                      u.state = 'IDLE';
-                  } else {
+                  if (!buildJob) u.state = 'IDLE';
+                  else {
                       buildJob.constructionProgress += (BUILD_SPEED_BASE * u.miningPower * multiplier) * dt;
                       if (buildJob.constructionProgress >= 1) {
                           buildJob.constructionProgress = 1;
@@ -533,11 +502,7 @@ const App: React.FC = () => {
                   if (!workJob || workJob.requestedWorkers === 0 || !workJob.assignedWorkers.includes(u.id)) {
                        u.workingAtBuildingId = null;
                        u.state = 'IDLE';
-                  } else {
-                       if (moveUnit(u, workJob.angle, SURFACE_LEVEL)) {
-                           u.state = 'WORKING_IN_BUILDING';
-                       }
-                  }
+                  } else if (moveUnit(u, workJob.angle, SURFACE_LEVEL)) u.state = 'WORKING_IN_BUILDING';
                   break;
 
               case 'WORKING_IN_BUILDING':
@@ -548,37 +513,62 @@ const App: React.FC = () => {
                    }
                    break;
 
-              case 'MOVING_TO_MINE': // Intent: Manual Mine
-              case 'PICKUP_LOOSE_ORE': // Intent: Grab loose ore
-                  // 1. Move to Shaft Top
+              case 'MOVING_TO_MINE': 
+              case 'PICKUP_LOOSE_ORE':
+                  // Go to entrance
                   if (Math.abs(normalizeAngle(u.position.angle - MINE_ANGLE)) > 2 || Math.abs(u.position.radius - SURFACE_LEVEL) > 2) {
                       moveUnit(u, MINE_ANGLE, SURFACE_LEVEL);
                   } else {
+                      // Decide Destination
+                      const currentDepthPx = Math.min(300, 20 + newDepth * 1.5);
+                      // Check available tunnels
+                      const availableTunnels = TUNNEL_DEFINITIONS.filter((t, idx) => t.depthPx < currentDepthPx);
+                      
+                      // 30% Chance to go to a tunnel if available, else bottom
+                      if (availableTunnels.length > 0 && Math.random() > 0.3) {
+                          const randIdx = Math.floor(Math.random() * availableTunnels.length);
+                          // Match index in global array
+                          const realIdx = TUNNEL_DEFINITIONS.findIndex(t => t === availableTunnels[randIdx]);
+                          u.targetTunnelIdx = realIdx;
+                      } else {
+                          u.targetTunnelIdx = null; // Main shaft
+                      }
                       u.state = 'ENTERING_MINE';
                   }
                   break;
 
               case 'ENTERING_MINE':
                   const visualDepth = Math.min(newDepth * 1.5, 300);
-                  const targetR = SURFACE_LEVEL - 20 - visualDepth;
+                  let targetR = SURFACE_LEVEL - 20 - visualDepth;
+                  let targetA = MINE_ANGLE;
+                  
+                  // If going to tunnel, target depth is fixed
+                  if (u.targetTunnelIdx !== null && u.targetTunnelIdx !== undefined && TUNNEL_DEFINITIONS[u.targetTunnelIdx]) {
+                       targetR = SURFACE_LEVEL - 20 - TUNNEL_DEFINITIONS[u.targetTunnelIdx].depthPx;
+                  }
+
                   const spd = u.carryingId ? DRILL_WEIGHT_SPEED_PENALTY : 1;
                   
-                  if (moveUnit(u, MINE_ANGLE, targetR, spd)) {
-                      // Arrived at bottom
+                  // Move vertically first
+                  let atDepth = false;
+                  const rDiff = targetR - u.position.radius;
+                  if (Math.abs(rDiff) < 2) atDepth = true;
+                  else u.position.radius += (rDiff > 0 ? 1 : -1) * u.speed * multiplier * spd * 30 * dt;
+
+                  if (atDepth) {
+                      // If drill carrier, start op
                       if (u.carryingId) {
                           u.state = 'OPERATING_DRILL';
                       } else if (prev.units.find(un => un.id === u.id)?.state === 'PICKUP_LOOSE_ORE') {
-                           if (newLooseOreInMine > 0) {
-                               const take = Math.min(u.maxCapacity, newLooseOreInMine);
-                               u.inventory = take;
-                               newLooseOreInMine -= take;
-                               u.state = 'EXITING_MINE';
-                           } else {
-                               u.state = 'MINING';
-                               u.progress = 0;
-                           }
+                           // Quick grab loose ore logic
+                           const take = Math.min(u.maxCapacity, newLooseOreInMine);
+                           u.inventory = take;
+                           newLooseOreInMine -= take;
+                           u.state = 'EXITING_MINE';
                       } else {
-                           if (newLooseOreInMine > 5) {
+                           // Check loose ore first
+                           if (newLooseOreInMine > 5 && !u.targetTunnelIdx) {
+                               // Only grab loose ore if at bottom of shaft
                                const take = Math.min(u.maxCapacity, newLooseOreInMine);
                                u.inventory = take;
                                newLooseOreInMine -= take;
@@ -589,29 +579,73 @@ const App: React.FC = () => {
                            }
                       }
                   }
-                  u.position.angle = MINE_ANGLE + Math.sin(now/300 + parseInt(u.id, 36)) * 1.5;
                   break;
 
               case 'MINING': 
                   const toughness = 1 + (newDepth * 0.05); 
                   const pwr = u.miningPower * multiplier;
-                  u.progress += (pwr / toughness) * dt;
-                  if (u.progress >= 1) {
-                      u.inventory = u.maxCapacity;
-                      newTotalMined += 1; 
-                      newDepth = Math.floor(newTotalMined / 100);
-                      u.state = 'EXITING_MINE';
+                  
+                  // Horizontal Movement Logic for Tunnel vs Shaft
+                  let targetAngle = MINE_ANGLE;
+                  
+                  if (u.targetTunnelIdx !== null && u.targetTunnelIdx !== undefined) {
+                      // Move into tunnel
+                      const tun = TUNNEL_DEFINITIONS[u.targetTunnelIdx];
+                      targetAngle = MINE_ANGLE + tun.angleOffset;
+                  } else {
+                      // Spread in main shaft
+                      targetAngle = MINE_ANGLE + Math.sin(parseInt(u.id, 36)) * 8;
+                  }
+
+                  // Move Angularly towards work spot
+                  let inPos = false;
+                  const aDiff = targetAngle - u.position.angle;
+                  if (Math.abs(aDiff) < 1) inPos = true;
+                  else u.position.angle += (aDiff > 0 ? 1 : -1) * u.speed * multiplier * 10 * dt;
+
+                  if (inPos) {
+                      u.progress += (pwr / toughness) * dt;
+                      if (u.progress >= 1) {
+                          u.inventory = u.maxCapacity;
+                          newTotalMined += 1; 
+                          newDepth = Math.floor(newTotalMined / 100);
+                          u.state = 'EXITING_MINE';
+                      }
                   }
                   break;
 
               case 'OPERATING_DRILL':
-                  // Carrier just stands here. The Drill produces ore in its own loop pass.
+                  // Visual bob
                   u.position.angle = MINE_ANGLE + Math.sin(now/50) * 1;
                   break;
 
               case 'EXITING_MINE':
-                  if (moveUnit(u, MINE_ANGLE, SURFACE_LEVEL)) {
-                      u.state = 'MOVING_TO_PILE';
+                  // First align to MINE ANGLE if in tunnel
+                  let aligned = false;
+                  if (Math.abs(u.position.angle - MINE_ANGLE) < 2) aligned = true;
+                  else {
+                      const dir = MINE_ANGLE - u.position.angle;
+                      u.position.angle += (dir > 0 ? 1 : -1) * u.speed * multiplier * 20 * dt;
+                  }
+
+                  if (aligned) {
+                      if (moveUnit(u, MINE_ANGLE, SURFACE_LEVEL)) {
+                          // Reached Surface
+                          if (u.energy <= 0) {
+                               if (u.carryingId) {
+                                   const drill = preProcessedUnits.find(d => d.id === u.carryingId);
+                                   if (drill) {
+                                       drill.carriedBy = null;
+                                       drill.state = 'IDLE';
+                                       drill.position = { ...u.position, radius: SURFACE_LEVEL };
+                                   }
+                                   u.carryingId = null;
+                               }
+                               u.state = 'MOVING_TO_HOME';
+                          } else {
+                               u.state = 'MOVING_TO_PILE';
+                          }
+                      }
                   }
                   break;
 
@@ -646,9 +680,12 @@ const App: React.FC = () => {
                    break;
               
               case 'CARRYING_DRILL_TO_MINE':
+                  // Ensure we go to mine entrance surface point first
                   if (Math.abs(normalizeAngle(u.position.angle - MINE_ANGLE)) > 2 || Math.abs(u.position.radius - SURFACE_LEVEL) > 2) {
                       moveUnit(u, MINE_ANGLE, SURFACE_LEVEL, DRILL_WEIGHT_SPEED_PENALTY);
                   } else {
+                      // Enter mine
+                      u.targetTunnelIdx = null; // Drills go to bottom
                       u.state = 'ENTERING_MINE';
                   }
                   break;
@@ -657,25 +694,19 @@ const App: React.FC = () => {
           return u;
       });
 
-      
-      // Aux Crushers & Workers
+      // Crusher Logic
       const crusherBuildings = newBuildings.filter(b => b.type === BuildingType.CRUSHER && b.status === 'COMPLETED');
       if (crusherBuildings.length > 0 && newSurfaceOre > 0) {
           let totalBonus = 0;
           crusherBuildings.forEach(cb => {
-              // Base rate
               totalBonus += 15; 
-              // Worker bonus
               const workers = newUnits.filter(u => u.workingAtBuildingId === cb.id && u.state === 'WORKING_IN_BUILDING');
               workers.forEach(w => {
-                  const efficiency = w.energy / w.maxEnergy; // Efficiency based on energy
+                  const efficiency = w.energy / w.maxEnergy;
                   totalBonus += CRUSHER_WORKER_BONUS * efficiency;
               });
           });
-
-          // Apply global multiplier to crush rate
           totalBonus *= multiplier;
-
           const extraCrush = Math.min(newSurfaceOre, totalBonus * dt);
           newSurfaceOre -= extraCrush;
           newCredits += extraCrush * ORE_VALUE;
@@ -702,7 +733,7 @@ const App: React.FC = () => {
     });
 
     requestAnimationFrame(tick);
-  }, []);
+  }, [getEffectiveStats]);
 
   useEffect(() => {
     const animationId = requestAnimationFrame(tick);

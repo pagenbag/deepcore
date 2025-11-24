@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -20,6 +21,12 @@
       ::-webkit-scrollbar-thumb {
         background: #4b5563;
         border-radius: 3px;
+      }
+      
+      @keyframes taxFall {
+          0% { transform: translateY(0); opacity: 1; }
+          70% { opacity: 0.8; }
+          100% { transform: translateY(150px); opacity: 0; }
       }
     </style>
   <script type="importmap">
