@@ -46,6 +46,26 @@ const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId,
   const mins = Math.floor(taxTimeRemaining / 60);
   const secs = taxTimeRemaining % 60;
   
+  // Tax Visual Logic
+  const justPaid = (Date.now() - gameState.lastTaxPaid) < 3000;
+  
+  let taxBorder = 'border-slate-700';
+  let taxText = 'text-gray-300';
+  let taxIcon = 'text-gray-400';
+  let taxAnim = '';
+
+  if (gameState.taxDue) {
+      taxBorder = 'border-red-500';
+      taxText = 'text-red-500';
+      taxIcon = 'text-red-500';
+      taxAnim = 'animate-pulse';
+  } else if (justPaid) {
+      taxBorder = 'border-yellow-400';
+      taxText = 'text-yellow-400';
+      taxIcon = 'text-yellow-400';
+      taxAnim = 'animate-pulse';
+  }
+
   return (
     <>
       {/* Top Resource Bar */}
@@ -60,11 +80,11 @@ const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId,
           </div>
           
           {/* TAX INDICATOR */}
-          <div className={`bg-slate-900/90 border p-2 px-4 rounded-full flex items-center gap-3 shadow-xl backdrop-blur ${gameState.taxDue ? 'border-red-500 animate-pulse' : 'border-slate-700'}`}>
-             <Clock className={gameState.taxDue ? "text-red-500" : "text-gray-400"} size={18} />
+          <div className={`bg-slate-900/90 border p-2 px-4 rounded-full flex items-center gap-3 shadow-xl backdrop-blur transition-colors duration-500 ${taxBorder} ${taxAnim}`}>
+             <Clock className={taxIcon} size={18} />
              <div>
                 <div className="text-[10px] text-gray-500 uppercase font-bold tracking-widest leading-none">Tax Due</div>
-                <div className={`text-lg font-mono leading-none ${gameState.taxDue ? 'text-red-500' : 'text-gray-300'}`}>
+                <div className={`text-lg font-mono leading-none ${taxText}`}>
                     ${formatNumber(gameState.taxAmount)} <span className="text-xs">({mins}:{secs < 10 ? '0'+secs : secs})</span>
                 </div>
              </div>
@@ -102,7 +122,7 @@ const Overlay: React.FC<OverlayProps> = ({ gameState, onBuyUnit, selectedSlotId,
              <Pickaxe className="text-gray-400" size={18} />
              <div>
                <div className="text-[10px] text-gray-500 uppercase font-bold tracking-widest leading-none">Depth</div>
-               <div className="text-lg font-mono text-white leading-none">{formatNumber(gameState.mineDepth * 10)} m</div>
+               <div className="text-lg font-mono text-white leading-none">{formatNumber(gameState.mineDepth * 5)} m</div>
              </div>
            </div>
         </div>

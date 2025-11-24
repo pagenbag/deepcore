@@ -62,16 +62,16 @@ export const BUILDING_UPGRADES: Record<BuildingType, BuildingUpgrade[]> = {
 // Tunnel Config
 export interface TunnelDef {
     depthPx: number; // Where it starts vertically (0-300 scale)
-    angleOffset: number; // Degrees (+ is right, - is left)
-    width: number; // How wide the tunnel is visually
+    direction: -1 | 1; // -1 Left, 1 Right
+    maxWidth: number; // Max visual width (doubled from previous approx)
 }
 
 export const TUNNEL_DEFINITIONS: TunnelDef[] = [
-    { depthPx: 60, angleOffset: -12, width: 30 },
-    { depthPx: 120, angleOffset: 15, width: 40 },
-    { depthPx: 180, angleOffset: -18, width: 35 },
-    { depthPx: 240, angleOffset: 12, width: 30 },
-    { depthPx: 280, angleOffset: -10, width: 25 },
+    { depthPx: 60, direction: -1, maxWidth: 60 },
+    { depthPx: 120, direction: 1, maxWidth: 80 },
+    { depthPx: 180, direction: -1, maxWidth: 70 },
+    { depthPx: 240, direction: 1, maxWidth: 60 },
+    { depthPx: 280, direction: -1, maxWidth: 50 },
 ];
 
 export const ORE_VALUE = 1; // Credits per ore

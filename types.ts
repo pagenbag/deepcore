@@ -72,6 +72,7 @@ export interface GameState {
   looseOreInMine: number; // Ore sitting at the bottom of the mine (needs hauling)
   totalMined: number; // Used to calculate depth
   mineDepth: number; // Visual and logic depth (meters)
+  tunnelLengths: number[]; // Current length of each horizontal tunnel
   maxPopulation: number;
   units: Entity[];
   buildings: BuildingSlot[];

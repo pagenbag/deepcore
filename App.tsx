@@ -14,6 +14,7 @@ const App: React.FC = () => {
     looseOreInMine: 0,
     totalMined: 0,
     mineDepth: 0, // Starts at 0 visually
+    tunnelLengths: TUNNEL_DEFINITIONS.map(() => 10), // Start with 10px nubs
     maxPopulation: BASE_POPULATION,
     units: [],
     buildings: INITIAL_SLOTS as BuildingSlot[],
@@ -267,6 +268,7 @@ const App: React.FC = () => {
       let newLooseOreInMine = prev.looseOreInMine;
       let newTotalMined = prev.totalMined;
       let newDepth = prev.mineDepth;
+      let newTunnelLengths = [...prev.tunnelLengths];
       let newRotation = prev.rotation;
       let newTaxTimer = prev.taxTimer;
       let newTaxAmount = prev.taxAmount;
@@ -521,11 +523,16 @@ const App: React.FC = () => {
                   } else {
                       // Decide Destination
                       const currentDepthPx = Math.min(300, 20 + newDepth * 1.5);
-                      // Check available tunnels
-                      const availableTunnels = TUNNEL_DEFINITIONS.filter((t, idx) => t.depthPx < currentDepthPx);
+                      // Check available tunnels that are excavated enough to enter
+                      // And check if they aren't fully mined out yet? No, they can always be extended up to max
+                      const availableTunnels = TUNNEL_DEFINITIONS.filter((t, idx) => {
+                          const isReachable = t.depthPx < currentDepthPx;
+                          const canGrow = newTunnelLengths[idx] < t.maxWidth;
+                          return isReachable && canGrow;
+                      });
                       
-                      // 30% Chance to go to a tunnel if available, else bottom
-                      if (availableTunnels.length > 0 && Math.random() > 0.3) {
+                      // 40% Chance to go to a growing tunnel if available, else bottom
+                      if (availableTunnels.length > 0 && Math.random() > 0.4) {
                           const randIdx = Math.floor(Math.random() * availableTunnels.length);
                           // Match index in global array
                           const realIdx = TUNNEL_DEFINITIONS.findIndex(t => t === availableTunnels[randIdx]);
@@ -540,7 +547,6 @@ const App: React.FC = () => {
               case 'ENTERING_MINE':
                   const visualDepth = Math.min(newDepth * 1.5, 300);
                   let targetR = SURFACE_LEVEL - 20 - visualDepth;
-                  let targetA = MINE_ANGLE;
                   
                   // If going to tunnel, target depth is fixed
                   if (u.targetTunnelIdx !== null && u.targetTunnelIdx !== undefined && TUNNEL_DEFINITIONS[u.targetTunnelIdx]) {
@@ -589,9 +595,17 @@ const App: React.FC = () => {
                   let targetAngle = MINE_ANGLE;
                   
                   if (u.targetTunnelIdx !== null && u.targetTunnelIdx !== undefined) {
-                      // Move into tunnel
+                      // Move to the current FACE of the tunnel to mine it
                       const tun = TUNNEL_DEFINITIONS[u.targetTunnelIdx];
-                      targetAngle = MINE_ANGLE + tun.angleOffset;
+                      const currentLen = newTunnelLengths[u.targetTunnelIdx];
+                      const radiusAtDepth = u.position.radius;
+                      
+                      // Angle offset in degrees = (ArcLength / Radius) * (180/PI)
+                      // We aim slightly before the end to "stand" there
+                      const angleOffsetRad = (currentLen / radiusAtDepth);
+                      const angleOffsetDeg = angleOffsetRad * (180 / Math.PI) * tun.direction;
+                      
+                      targetAngle = MINE_ANGLE + angleOffsetDeg;
                   } else {
                       // Spread in main shaft
                       targetAngle = MINE_ANGLE + Math.sin(parseInt(u.id, 36)) * 8;
@@ -607,8 +621,24 @@ const App: React.FC = () => {
                       u.progress += (pwr / toughness) * dt;
                       if (u.progress >= 1) {
                           u.inventory = u.maxCapacity;
-                          newTotalMined += 1; 
-                          newDepth = Math.floor(newTotalMined / 100);
+                          
+                          if (u.targetTunnelIdx !== null && u.targetTunnelIdx !== undefined) {
+                              // Tunnel Mining Logic
+                              const tIdx = u.targetTunnelIdx;
+                              const tDef = TUNNEL_DEFINITIONS[tIdx];
+                              if (newTunnelLengths[tIdx] < tDef.maxWidth) {
+                                  newTunnelLengths[tIdx] += 1; // Extend tunnel
+                              } else {
+                                  // Fallback if maxed
+                                  newTotalMined += 1;
+                                  newDepth = Math.floor(newTotalMined / 100);
+                              }
+                          } else {
+                              // Shaft Logic
+                              newTotalMined += 1; 
+                              newDepth = Math.floor(newTotalMined / 100);
+                          }
+                          
                           u.state = 'EXITING_MINE';
                       }
                   }
@@ -720,6 +750,7 @@ const App: React.FC = () => {
         looseOreInMine: Math.max(0, newLooseOreInMine),
         totalMined: newTotalMined,
         mineDepth: newDepth,
+        tunnelLengths: newTunnelLengths,
         maxPopulation: calculatedMaxPop,
         units: newUnits,
         buildings: newBuildings,

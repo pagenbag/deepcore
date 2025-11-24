@@ -1,7 +1,7 @@
 
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { GameState, ASTEROID_RADIUS, SURFACE_LEVEL, UnitType, BuildingType, PILE_ANGLE, MINE_ANGLE } from '../types';
-import { RotateCw, RotateCcw, Settings, BatteryWarning, AlertTriangle } from 'lucide-react';
+import { Settings, BatteryWarning, AlertTriangle } from 'lucide-react';
 import { BUILDING_COSTS, TUNNEL_DEFINITIONS } from '../constants';
 
 interface AsteroidCanvasProps {
@@ -13,7 +13,7 @@ interface AsteroidCanvasProps {
 const DEG_TO_RAD = Math.PI / 180;
 
 const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation, onSelectSlot }) => {
-  const { rotation, units, buildings, surfaceOre, mineDepth, looseOreInMine, taxDue, lastTaxPaid } = gameState;
+  const { rotation, units, buildings, surfaceOre, mineDepth, looseOreInMine, taxDue, tunnelLengths } = gameState;
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [hoveredSlotId, setHoveredSlotId] = useState<number | null>(null);
@@ -47,7 +47,7 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
       return arr;
   }, []);
 
-  // Updated Mine Path Generator (With Horizontal Tunnels)
+  // Updated Mine Path Generator (With Growing Horizontal Tunnels)
   const minePath = useMemo(() => {
       const currentDepthPx = Math.min(300, 20 + mineDepth * 1.5);
       const topWidth = 26;
@@ -61,14 +61,15 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
       d += `Z `; // Close shaft
 
       // Tunnels
-      TUNNEL_DEFINITIONS.forEach(tun => {
+      TUNNEL_DEFINITIONS.forEach((tun, idx) => {
           if (currentDepthPx > tun.depthPx + 10) {
               // Draw tunnel box attached to shaft
               const y = tun.depthPx;
               const h = 20; // height of tunnel
-              const w = tun.width;
-              // If angleOffset is positive, tunnel is on Right
-              if (tun.angleOffset > 0) {
+              const w = tunnelLengths[idx]; // DYNAMIC LENGTH
+              
+              // If direction is positive, tunnel is on Right
+              if (tun.direction > 0) {
                   // Right Tunnel
                   const startX = (topWidth/2) + ((bottomWidth-topWidth)/2) * (y/300); // Approx width at depth
                   d += `M ${startX} ${y} L ${startX + w} ${y} L ${startX + w} ${y+h} L ${startX} ${y+h} Z `;
@@ -81,7 +82,7 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
       });
       
       return d;
-  }, [mineDepth]);
+  }, [mineDepth, tunnelLengths]);
 
   // --- HELPER ---
   const normalizeAngle = (angle: number) => {
@@ -120,28 +121,18 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
     if(e.target instanceof Element) (e.target as Element).releasePointerCapture(e.pointerId);
   };
 
-  const showTaxPayEffect = (Date.now() - lastTaxPaid) < 2000;
-
   // --- RENDER ---
   
   // Units (Z-Index 40)
   const renderedUnits = units.map((unit) => {
-    // Offset logic for tunnels
     let visualAngle = unit.position.angle;
     
-    // Convert logic coordinates to visual coordinates for units deep in mine
-    // Logic uses angle + radius. Radius maps directly. Angle maps to offset.
-    // However, SVG is drawn flat on top.
-    // If we are "inside" the asteroid, the standard getPosition works fine because it rotates everything.
-    // The trick is the mine is drawn static in the asteroid frame.
-    // So unit.position.angle works naturally if the mine tunnels are angled relative to center.
-    // But our Tunnels are drawn as horizontal rectangles in the SVG frame.
-    // So we need to ensure unit.position.angle actually maps to that visual offset.
-    // The Game Logic updates `angle` to be +/- 15 degrees.
-    // `getPosition` rotates by that angle.
-    // At radius ~350, 1 degree is approx 6 pixels.
-    // So 15 degrees is 90 pixels offset.
-    // This matches the visual tunnel logic fairly well.
+    // Logic uses angle + radius for position.
+    // SVG Mine is drawn flat on top of asteroid.
+    // Tunnels are horizontal rects.
+    // We must map unit's Logic Angle (which is offset for tunnels) to Visual Position.
+    // In logic: targetAngle = MINE_ANGLE + (length / radius) * deg.
+    // This naturally maps to the correct x-offset if we just render normally.
 
     const pos = getPosition(visualAngle, unit.position.radius);
     const visible = isVisible(pos.rot);
@@ -433,24 +424,6 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
               </div>
           </div>
       )}
-      {/* Subtle Tax Pay Effect */}
-      {showTaxPayEffect && (
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 z-40 pointer-events-none w-full h-64 overflow-hidden">
-             {Array.from({length: 8}).map((_, i) => (
-                <div 
-                    key={i} 
-                    className="absolute text-yellow-400 font-mono text-sm opacity-0"
-                    style={{ 
-                        left: `calc(50% + ${Math.random() * 100 - 50}px)`, 
-                        top: '40px',
-                        animation: `taxFall 2.5s ease-out forwards ${i * 0.1}s` 
-                    }}
-                >
-                    $
-                </div>
-             ))}
-          </div>
-      )}
       
       <div className="absolute bottom-0 left-1/2 w-0 h-0">
         <div 
@@ -497,7 +470,7 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
                             key={i} 
                             className="absolute w-1.5 h-1.5 bg-yellow-200 rounded-full shadow-sm"
                             style={{ 
-                                left: `${50 + (Math.sin(i * 123) * 60)}%`, // Spread wider
+                                left: `${50 + (Math.sin(i * 123) * 15)}%`, // Spread tighter (15%)
                                 top: `${Math.abs(Math.cos(i * 321) * 5)}px`
                             }}
                         ></div>
@@ -541,17 +514,6 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
                 }}
             />
         </div>
-      </div>
-
-      <div className="absolute bottom-28 left-1/2 transform -translate-x-1/2 flex gap-8 z-40 pointer-events-auto opacity-50 hover:opacity-100 transition-opacity">
-        <button 
-          onMouseDown={() => { const interval = setInterval(() => setRotation(p => p+2), 20); const stop = () => clearInterval(interval); window.addEventListener('mouseup', stop, { once: true }); }}
-          className="p-3 rounded-full bg-slate-800 text-white border border-slate-600"
-        ><RotateCcw size={20} /></button>
-        <button 
-          onMouseDown={() => { const interval = setInterval(() => setRotation(p => p-2), 20); const stop = () => clearInterval(interval); window.addEventListener('mouseup', stop, { once: true }); }}
-          className="p-3 rounded-full bg-slate-800 text-white border border-slate-600"
-        ><RotateCw size={20} /></button>
       </div>
     </div>
   );
