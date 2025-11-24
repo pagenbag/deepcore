@@ -1,3 +1,4 @@
+
 export enum UnitType {
   MINER_BASIC = 'MINER_BASIC',
   MINER_DRILL = 'MINER_DRILL',
@@ -15,11 +16,13 @@ export enum BuildingType {
 export interface Entity {
   id: string;
   type: UnitType;
-  state: 'IDLE' | 'MOVING_TO_MINE' | 'ENTERING_MINE' | 'MINING' | 'EXITING_MINE' | 'MOVING_TO_PILE' | 'DEPOSITING';
+  state: 'IDLE' | 'MOVING_TO_MINE' | 'ENTERING_MINE' | 'MINING' | 'EXITING_MINE' | 'MOVING_TO_PILE' | 'DEPOSITING' | 'MOVING_TO_HOME' | 'CHARGING';
   position: { x: number; y: number; angle: number; radius: number };
   targetDepth: number;
   inventory: number;
   maxCapacity: number;
+  energy: number;
+  maxEnergy: number;
   speed: number;
   miningPower: number;
   progress: number; // 0 to 1 for current action

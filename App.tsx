@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import AsteroidCanvas from './components/AsteroidCanvas';
 import Overlay from './components/Overlay';
 import { GameState, UnitType, BuildingType, Entity, SURFACE_LEVEL, MINE_ANGLE, PILE_ANGLE } from './types';
-import { UNIT_STATS, ORE_VALUE, INITIAL_SLOTS, BUILDING_COSTS, BASE_CRUSHER_RATE, BASE_POPULATION, POPULATION_PER_HABITAT } from './constants';
+import { UNIT_STATS, ORE_VALUE, INITIAL_SLOTS, BUILDING_COSTS, BASE_CRUSHER_RATE, BASE_POPULATION, POPULATION_PER_HABITAT, ENERGY_DRAIN_RATE, ENERGY_RECHARGE_RATE } from './constants';
 
 const App: React.FC = () => {
   // Game State
@@ -31,8 +32,9 @@ const App: React.FC = () => {
     if (gameState.credits < stats.cost) return;
     if (gameState.units.length >= gameState.maxPopulation) return;
 
-    // Spawn near the Habitat (or random surface point if confused)
-    const spawnAngle = MINE_ANGLE - 20 + Math.random() * 10; 
+    // Spawn at the first available dormitory/Habitat
+    const dorm = gameState.buildings.find(b => b.type === BuildingType.DORMITORY);
+    const spawnAngle = dorm ? dorm.angle : MINE_ANGLE;
 
     const newUnit: Entity = {
       id: generateId(),
@@ -42,6 +44,8 @@ const App: React.FC = () => {
       targetDepth: gameState.mineDepth,
       inventory: 0,
       maxCapacity: stats.capacity,
+      energy: stats.maxEnergy,
+      maxEnergy: stats.maxEnergy,
       speed: stats.speed,
       miningPower: stats.power,
       progress: 0
@@ -128,11 +132,44 @@ const App: React.FC = () => {
           }
       }
 
+      // Helper to find nearest Dorm
+      const getNearestDormAngle = (currentAngle: number) => {
+          const dorms = prev.buildings.filter(b => b.type === BuildingType.DORMITORY);
+          if (dorms.length === 0) return MINE_ANGLE; // Fallback
+          
+          // Find closest
+          let closest = dorms[0];
+          let minDiff = 360;
+          
+          dorms.forEach(d => {
+              let diff = Math.abs(d.angle - currentAngle);
+              if (diff > 180) diff = 360 - diff;
+              if (diff < minDiff) {
+                  minDiff = diff;
+                  closest = d;
+              }
+          });
+          return closest.angle;
+      };
+
       // Update Units
       const newUnits = prev.units.map(unit => {
         const u = { ...unit };
         const isFlying = u.type === UnitType.CARRIER_DRONE;
         
+        // Energy Consumption
+        if (u.state !== 'CHARGING' && u.state !== 'IDLE') {
+            u.energy -= ENERGY_DRAIN_RATE * dt;
+        }
+
+        // Low Energy Interrupt
+        // If energy is empty, abort current task and go home.
+        // Note: We allow them to finish depositing if they are already doing it, or if they have ore we prioritize dropping it off?
+        // For simplicity, if energy is 0, they MUST recharge. If they have ore, they keep it until they come back.
+        if (u.energy <= 0 && u.state !== 'CHARGING' && u.state !== 'MOVING_TO_HOME') {
+            u.state = 'MOVING_TO_HOME';
+        }
+
         // Movement Logic
         const moveTowardsAngle = (targetAngle: number, stopRadius = 0.5) => {
             let diff = targetAngle - u.position.angle;
@@ -163,7 +200,6 @@ const App: React.FC = () => {
         }
         else if (u.state === 'ENTERING_MINE') {
             // Descend to current depth
-            // If depth is 0, stay at surface level - 20 (just inside entrance)
             // Max visual depth cap at 300px
             const visualDepth = Math.min(newDepth * 1.5, 300);
             const targetR = SURFACE_LEVEL - 20 - visualDepth;
@@ -175,7 +211,6 @@ const App: React.FC = () => {
             u.position.angle = MINE_ANGLE + Math.sin(now/300 + parseInt(u.id, 36)) * 1.5;
         }
         else if (u.state === 'MINING') {
-            // Mining time scales with depth. Tougher ore!
             const toughness = 1 + (newDepth * 0.05); 
             const miningRate = u.miningPower / toughness;
             
@@ -206,15 +241,39 @@ const App: React.FC = () => {
             if (u.progress >= 1) {
                 newSurfaceOre += u.inventory;
                 newTotalMined += u.inventory;
-                // Depth increases slowly: 1 meter every 100 units mined
                 newDepth = Math.floor(newTotalMined / 100); 
                 u.inventory = 0;
                 u.targetDepth = newDepth;
-                u.state = 'MOVING_TO_MINE';
+                
+                // If energy low after deposit, go home, else mine
+                if (u.energy < u.maxEnergy * 0.2) {
+                    u.state = 'MOVING_TO_HOME';
+                } else {
+                    u.state = 'MOVING_TO_MINE';
+                }
             }
         }
-        else {
-            u.state = 'MOVING_TO_MINE';
+        else if (u.state === 'MOVING_TO_HOME') {
+            // First, ensure we are on surface if we were in the hole
+            if (u.position.radius < SURFACE_LEVEL) {
+                moveTowardsRadius(SURFACE_LEVEL);
+                u.position.angle = MINE_ANGLE + Math.sin(now/300 + parseInt(u.id, 36)) * 1.5;
+            } else {
+                // We are on surface, go to habitat
+                const target = getNearestDormAngle(u.position.angle);
+                if (moveTowardsAngle(target, 1)) {
+                    u.state = 'CHARGING';
+                }
+            }
+        }
+        else if (u.state === 'CHARGING') {
+            u.energy += ENERGY_RECHARGE_RATE * dt;
+            if (u.energy >= u.maxEnergy) {
+                u.energy = u.maxEnergy;
+                // Return to work
+                if (u.inventory > 0) u.state = 'MOVING_TO_PILE';
+                else u.state = 'MOVING_TO_MINE';
+            }
         }
 
         return u;

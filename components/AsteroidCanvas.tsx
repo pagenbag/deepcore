@@ -1,6 +1,7 @@
+
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { GameState, ASTEROID_RADIUS, SURFACE_LEVEL, UnitType, BuildingType, PILE_ANGLE, CRUSHER_ANGLE, MINE_ANGLE } from '../types';
-import { RotateCw, RotateCcw, Settings } from 'lucide-react';
+import { RotateCw, RotateCcw, Settings, BatteryWarning } from 'lucide-react';
 import { BUILDING_COSTS } from '../constants';
 
 interface AsteroidCanvasProps {
@@ -87,12 +88,17 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
   const renderedUnits = units.map((unit) => {
     const pos = getPosition(unit.position.angle, unit.position.radius);
     
-    let color = 'bg-white';
+    // Energy visualization: Desaturate as energy drops
+    const energyRatio = unit.energy / unit.maxEnergy;
+    const saturation = Math.max(0, energyRatio * 100);
+    const brightness = 50 + (energyRatio * 50); // Dim slightly
+
+    const filterStyle = { filter: `grayscale(${100 - saturation}%) brightness(${brightness}%)` };
+    
     let size = 'w-3 h-3';
     let Shape = <div className="w-full h-full rounded-full bg-white" />;
     
     if (unit.type === UnitType.MINER_BASIC) {
-        color = 'bg-yellow-400';
         Shape = <div className="w-full h-full bg-yellow-400 border border-yellow-600 rounded-sm" />;
     }
     if (unit.type === UnitType.MINER_DRILL) {
@@ -112,12 +118,18 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
           left: `calc(50% + ${pos.x}px)`,
           top: `calc(50% + ${pos.y}px)`,
           transform: `translate(-50%, -50%) rotate(${pos.rot}deg)`,
-          zIndex: 20
+          zIndex: 20,
+          ...filterStyle
         }}
       >
         {Shape}
         {unit.inventory > 0 && (
            <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-2 h-2 bg-yellow-200 rounded-full shadow-sm animate-pulse" />
+        )}
+        {unit.state === 'CHARGING' && (
+           <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-green-400 animate-bounce">
+               <BatteryWarning size={10} />
+           </div>
         )}
       </div>
     );
@@ -149,7 +161,8 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
                 <div className="w-12 h-1 bg-white/20 shadow-[0_0_10px_rgba(255,255,255,0.2)]"></div>
             </div>
         );
-        Label = <div className="text-[8px] text-gray-500 mt-1 uppercase tracking-widest font-bold">Site {slot.id}</div>;
+        // No Label for empty sites
+        Label = null; 
     } 
     else if (slot.type === BuildingType.DORMITORY) {
         Visual = (
@@ -216,23 +229,19 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
         onPointerEnter={() => setHoveredSlotId(slot.id)}
         onPointerLeave={() => setHoveredSlotId(null)}
         onClick={(e) => { e.stopPropagation(); onSelectSlot(slot.id); }}
-        className="absolute flex flex-col items-center justify-end cursor-pointer hover:scale-105 transition-transform duration-200"
+        className="absolute flex flex-col items-center justify-end cursor-pointer hover:scale-105"
         style={{
           left: `calc(50% + ${pos.x}px)`,
           top: `calc(50% + ${pos.y}px)`,
-          transform: `translate(-50%, -50%) rotate(${pos.rot}deg)`, // Rotates around center of container which is at surface
-          // To make it "stand" on surface, we ensure the 'bottom' of the Visual is near the center of this container
+          transform: `translate(-50%, -50%) rotate(${pos.rot}deg)`, 
           zIndex: 30,
           opacity: isVisible ? 1 : 0,
           pointerEvents: isVisible ? 'auto' : 'none',
         }}
       >
-        {/* Container is centered on surface. 
-            We push visual UP (negative margin or just flex order) 
-            We push label DOWN 
-        */}
+        {/* Container is centered on surface. */}
         <div className="mb-[2px] origin-bottom">{Visual}</div>
-        <div className="mt-[2px]">{Label}</div>
+        {Label && <div className="mt-[2px]">{Label}</div>}
 
         {/* TOOLTIP */}
         {isHovered && info && (
@@ -387,7 +396,7 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ gameState, setRotation,
 
         {/* Main Crusher */}
         <div 
-            className="absolute flex flex-col items-center cursor-pointer will-change-transform hover:scale-105 transition-transform"
+            className="absolute flex flex-col items-center cursor-pointer will-change-transform hover:scale-105"
             style={{
                 left: `calc(50% + ${crusherPos.x}px)`,
                 top: `calc(50% + ${crusherPos.y}px)`,
