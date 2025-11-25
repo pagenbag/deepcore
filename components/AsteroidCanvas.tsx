@@ -31,8 +31,16 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ engine, rotation, setRo
 
   const craters = useMemo(() => {
       const arr = [];
-      for(let i=0; i<12; i++) {
-          arr.push({ x: Math.cos(Math.random()*6.28)*(ASTEROID_RADIUS-50), y: Math.sin(Math.random()*6.28)*(ASTEROID_RADIUS-50), size: 20+Math.random()*40 });
+      for(let i=0; i<15; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          // Use square root of random for uniform distribution in circle
+          const dist = Math.sqrt(Math.random()) * (ASTEROID_RADIUS - 80); 
+          const size = 20 + Math.random() * 50;
+          arr.push({ 
+              x: Math.cos(angle) * dist, 
+              y: Math.sin(angle) * dist, 
+              size 
+          });
       }
       return arr;
   }, []);
@@ -112,7 +120,20 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ engine, rotation, setRo
         <div className="absolute rounded-full bg-stone-800 shadow-[0_0_150px_rgba(0,0,0,1)_inset]"
           style={{ width: `${ASTEROID_RADIUS * 2}px`, height: `${ASTEROID_RADIUS * 2}px`, transform: `translate(-50%, -50%) rotate(${rotation}deg)`, border: '8px solid #292524' }}>
           
-          {craters.map((c, i) => (<div key={i} className="absolute rounded-full bg-stone-900/40" style={{ left: `calc(50% + ${c.x}px)`, top: `calc(50% + ${c.y}px)`, width: c.size, height: c.size, transform: 'translate(-50%, -50%)' }} />))}
+          {/* Craters */}
+          {craters.map((c, i) => (
+              <div key={i} className="absolute rounded-full" 
+                   style={{ 
+                       left: `calc(50% + ${c.x}px)`, 
+                       top: `calc(50% + ${c.y}px)`, 
+                       width: c.size, 
+                       height: c.size, 
+                       transform: 'translate(-50%, -50%)',
+                       background: 'radial-gradient(circle at 30% 30%, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.4) 100%)',
+                       boxShadow: 'inset 2px 2px 5px rgba(0,0,0,0.6), 1px 1px 0px rgba(255,255,255,0.05)'
+                   }} 
+              />
+          ))}
 
           {/* Mine Shaft */}
           <div className="absolute top-0 left-1/2 transform -translate-x-1/2 overflow-visible" style={{ height: '300px', width: '100px' }}>
@@ -139,8 +160,30 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ engine, rotation, setRo
              if (!b.type) {
                  Visual = <div className="mb-2 w-8 h-8 rounded-full border-2 border-dashed border-white/30 flex items-center justify-center text-white/50 group-hover:text-white">+</div>;
              } else if (b.status !== 'COMPLETED') {
-                 Visual = <div className="w-12 h-12 bg-yellow-400/20 border-x-4 border-slate-500 relative"><div className="absolute bottom-0 w-full bg-slate-700/80" style={{height: `${b.constructionProgress*100}%`}}></div></div>;
-                 Label = <div className="bg-yellow-900/80 text-[9px] px-1 rounded text-yellow-200 mt-1">{Math.floor(b.constructionProgress*100)}%</div>;
+                 // Construction Site
+                 const isPending = b.status === 'PENDING';
+                 Visual = (
+                     <div className="w-12 h-12 relative flex flex-col justify-end items-center">
+                         {/* Scaffold (Growing) */}
+                         {!isPending && (
+                             <div className="border-2 border-blue-400/50 bg-blue-500/20 relative transition-all duration-300 mx-auto" 
+                                  style={{ height: `${Math.max(0, b.constructionProgress * 100 - 10)}%`, width: '80%' }}>
+                                 {/* Grid lines effect */}
+                                 <div className="absolute inset-0" style={{ backgroundImage: 'linear-gradient(to top, rgba(96, 165, 250, 0.5) 1px, transparent 1px)' , backgroundSize: '100% 25%'}}></div>
+                             </div>
+                         )}
+                         
+                         {/* Foundation (Hazard) */}
+                         <div className="w-full h-3 border border-yellow-700 bg-yellow-600 relative overflow-hidden shadow-lg z-10 shrink-0">
+                             <div className="absolute inset-0 opacity-75" 
+                                  style={{ backgroundImage: 'repeating-linear-gradient(45deg, #000 0, #000 5px, #ca8a04 5px, #ca8a04 10px)' }}>
+                             </div>
+                         </div>
+                         
+                         {isPending && <div className="absolute -top-6 w-32 left-1/2 -translate-x-1/2 text-center text-[8px] font-bold text-yellow-500 animate-pulse bg-black/50 rounded px-1">WAITING</div>}
+                     </div>
+                 );
+                 Label = <div className="bg-yellow-900/90 text-[9px] px-1.5 py-0.5 rounded text-yellow-200 mt-1 font-mono">{Math.floor(b.constructionProgress * 100)}%</div>;
              } else {
                  if(b.type === BuildingType.DORMITORY) {
                      Visual = <div className={`w-12 h-10 bg-blue-600 rounded-t-full border-4 border-blue-800 relative ${b.level>1?'scale-125':''}`}><div className="absolute bottom-0 w-full h-2 bg-blue-900 flex justify-center gap-1 px-1">{Array.from({length:5}).map((_,i)=><div key={i} className={`w-1 h-1 rounded-full ${i<b.occupants.length?'bg-green-400':'bg-black/50'}`} />)}</div></div>;

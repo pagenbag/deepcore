@@ -80,12 +80,17 @@ const Overlay: React.FC<OverlayProps> = ({ engine, selectedSlotId, onCloseBuildM
                                 if (t !== BuildingType.LAUNCHPAD && selectedSlot?.isLaunchpadSlot) return null; // Launchpad slot only builds launchpad
                                 
                                 const conf = BUILDING_CONFIG[t];
-                                const cost = conf.baseCost; 
+                                // Rule: First Habitat is Free
+                                const isFirstHabitat = t === BuildingType.DORMITORY && !engine.buildings.some(b => b.type === BuildingType.DORMITORY);
+                                const effectiveCost = isFirstHabitat ? 0 : conf.baseCost;
+
                                 return (
-                                    <button key={t} onClick={() => engine.constructBuilding(selectedSlotId, t)} disabled={engine.credits < cost}
-                                        className={`p-4 rounded border text-left flex flex-col ${engine.credits >= cost ? 'bg-slate-800 hover:bg-slate-700 border-slate-600' : 'bg-slate-950 opacity-50'}`}>
+                                    <button key={t} onClick={() => engine.constructBuilding(selectedSlotId, t)} disabled={engine.credits < effectiveCost}
+                                        className={`p-4 rounded border text-left flex flex-col ${engine.credits >= effectiveCost ? 'bg-slate-800 hover:bg-slate-700 border-slate-600' : 'bg-slate-950 opacity-50'}`}>
                                         <div className="font-bold text-blue-100">{conf.label}</div>
-                                        <div className="text-xs text-yellow-400 mb-1">${cost}</div>
+                                        <div className="text-xs text-yellow-400 mb-1">
+                                            {isFirstHabitat ? <span className="text-green-400 font-bold">FREE</span> : `$${effectiveCost}`}
+                                        </div>
                                         <div className="text-[10px] text-gray-400">{conf.desc}</div>
                                     </button>
                                 );

@@ -51,27 +51,41 @@ export abstract class Unit {
         return engine.getUnitStats(this.type);
     }
 
+    protected rotateTowards(targetAngle: number, dt: number, speed: number): boolean {
+        // Calculate shortest path
+        let diff = targetAngle - this.position.angle;
+        while (diff > 180) diff -= 360;
+        while (diff < -180) diff += 360;
+
+        // Snap if close
+        if (Math.abs(diff) < 0.5) {
+            this.position.angle = targetAngle; 
+            return true;
+        } 
+        
+        // Move
+        const change = (diff > 0 ? 1 : -1) * speed * dt;
+        this.position.angle += change;
+        
+        // Keep angle normalized 0-360 to prevent massive overflow over time
+        this.position.angle = this.normalizeAngle(this.position.angle);
+        
+        return false;
+    }
+
     protected moveTowards(targetAngle: number, targetRadius: number, dt: number, engine: GameEngine, speedPenalty: number = 1): boolean {
         const stats = this.getStats(engine);
         const effectiveSpeed = stats.speed * engine.globalMultiplier * speedPenalty;
         
-        let arrivedAngle = false;
-        let arrivedRadius = false;
-
         // Angle
-        let diff = targetAngle - this.position.angle;
-        while (diff > 180) diff -= 360;
-        while (diff < -180) diff += 360;
-        
-        if (Math.abs(diff) < 0.5) {
-            arrivedAngle = true;
-        } else {
-            this.position.angle += (diff > 0 ? 1 : -1) * effectiveSpeed * 15 * dt;
-        }
+        // 15 is an arbitrary turn speed multiplier relative to move speed
+        const arrivedAngle = this.rotateTowards(targetAngle, dt, effectiveSpeed * 15);
 
         // Radius
+        let arrivedRadius = false;
         const rDiff = targetRadius - this.position.radius;
         if (Math.abs(rDiff) < 2) {
+            this.position.radius = targetRadius; // Snap
             arrivedRadius = true;
         } else {
             this.position.radius += (rDiff > 0 ? 1 : -1) * effectiveSpeed * 30 * dt;
@@ -283,7 +297,7 @@ export class Miner extends Unit {
     private moveToHome(dt: number, engine: GameEngine) {
         if (this.position.radius < SURFACE_LEVEL - 5) {
             // In mine, exit first
-             this.moveTowards(MINE_ANGLE, SURFACE_LEVEL, dt, engine);
+             this.handleExitingMine(dt, engine);
              return;
         }
 
@@ -352,11 +366,9 @@ export class Miner extends Unit {
              targetAngle = MINE_ANGLE + Math.sin(parseInt(this.id.substr(0,4), 36)) * 8;
         }
 
-        // Move to face
-        let inPos = false;
-        const diff = targetAngle - this.position.angle;
-        if (Math.abs(diff) < 1) inPos = true;
-        else this.position.angle += (diff > 0 ? 1 : -1) * this.getStats(engine).speed * engine.globalMultiplier * 10 * dt;
+        // Move to face using shortest path
+        const turnSpeed = this.getStats(engine).speed * engine.globalMultiplier * 10;
+        const inPos = this.rotateTowards(targetAngle, dt, turnSpeed);
 
         if (inPos) {
             this.progress += (power / toughness) * dt;
@@ -378,12 +390,15 @@ export class Miner extends Unit {
     }
 
     private handleExitingMine(dt: number, engine: GameEngine) {
-        // Align to shaft center first
-        if (Math.abs(this.normalizeAngle(this.position.angle - MINE_ANGLE)) > 2) {
-             const stats = this.getStats(engine);
-             const dir = MINE_ANGLE - this.position.angle;
-             this.position.angle += (dir > 0 ? 1 : -1) * stats.speed * engine.globalMultiplier * 20 * dt;
-        } else {
+        const stats = this.getStats(engine);
+        // Align to shaft center first (Shortest Path rotation)
+        const turnSpeed = stats.speed * engine.globalMultiplier * 20;
+        
+        // We consider it "aligned" if within 2 degrees
+        // rotateTowards returns true if within 0.5 deg
+        const aligned = this.rotateTowards(MINE_ANGLE, dt, turnSpeed);
+        
+        if (Math.abs(this.normalizeAngle(this.position.angle - MINE_ANGLE)) < 2 || aligned) {
             // Go Up
             if (this.moveTowards(MINE_ANGLE, SURFACE_LEVEL, dt, engine)) {
                 // Reached Surface
