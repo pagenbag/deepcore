@@ -49,7 +49,8 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ engine, rotation, setRo
       const currentDepthPx = Math.min(300, 20 + engine.mineDepth * 1.5);
       const topWidth = 26;
       const bottomWidth = 34; 
-      let d = `M -${topWidth/2} 0 L -${bottomWidth/2} ${currentDepthPx} L ${bottomWidth/2} ${currentDepthPx} L ${topWidth/2} 0 Z `;
+      // Start path slightly negative y to ensure it overlaps the surface border
+      let d = `M -${topWidth/2} -2 L -${bottomWidth/2} ${currentDepthPx} L ${bottomWidth/2} ${currentDepthPx} L ${topWidth/2} -2 Z `;
       
       engine.tunnels.forEach(tun => {
           if (currentDepthPx > tun.depthPx + 10) {
@@ -135,8 +136,8 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ engine, rotation, setRo
               />
           ))}
 
-          {/* Mine Shaft */}
-          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 overflow-visible" style={{ height: '300px', width: '100px' }}>
+          {/* Mine Shaft - Moved slightly up (-mt-1) to ensure connection with surface border */}
+          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 overflow-visible -mt-1" style={{ height: '300px', width: '100px' }}>
               <svg width="200" height="400" viewBox="-100 0 200 400" className="absolute top-0 left-1/2 -translate-x-1/2 overflow-visible">
                   <path d={minePath} fill="url(#mineGradient)" stroke="none" />
                   <defs><linearGradient id="mineGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#292524" stopOpacity="0"/><stop offset="100%" stopColor="#000" stopOpacity="0.95"/></linearGradient></defs>
@@ -203,10 +204,11 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ engine, rotation, setRo
                  }
              }
 
+             // NOTE: transform translate Y changed to -100% to sit ON the surface, not straddle it
              return (
                  <div key={b.id} onClick={(e)=>{e.stopPropagation(); onSelectSlot(b.id)}} onPointerEnter={()=>setHoveredSlotId(b.id)} onPointerLeave={()=>setHoveredSlotId(null)}
                       className="absolute flex flex-col items-center justify-end cursor-pointer hover:scale-105"
-                      style={{ left: `calc(50% + ${pos.x}px)`, top: `calc(50% + ${pos.y}px)`, transform: `translate(-50%, -50%) rotate(${pos.rot}deg)`, zIndex: 30, opacity: visible?1:0, pointerEvents: visible?'auto':'none' }}>
+                      style={{ left: `calc(50% + ${pos.x}px)`, top: `calc(50% + ${pos.y}px)`, transform: `translate(-50%, -100%) rotate(${pos.rot}deg)`, zIndex: 30, opacity: visible?1:0, pointerEvents: visible?'auto':'none' }}>
                      <div className="origin-bottom">{Visual}</div>
                      {Label}
                      {hoveredSlotId === b.id && b.type && (
@@ -244,21 +246,25 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ engine, rotation, setRo
             )
         })}
         
-        {/* Mine/Pile Labels */}
+        {/* Mine Label */}
         <div className="absolute pointer-events-none" style={{...getStyles(MINE_ANGLE), zIndex:25}}>
              <div className="bg-amber-900 text-[10px] text-amber-100 px-2 py-0.5 -translate-y-6">MINE</div>
         </div>
-        <div className="absolute pointer-events-none" style={{...getStyles(PILE_ANGLE), zIndex:25}}>
-             <div className="bg-orange-600 w-6 h-4 rounded-t-lg -translate-y-2" style={{transform: `scale(${0.5 + Math.sqrt(engine.surfaceOre)*0.1})`}} />
+        
+        {/* Pile Visual - Origin Bottom + Translate -100% to grow UP from surface */}
+        <div className="absolute pointer-events-none origin-bottom transition-transform duration-300" 
+             style={{...getStyles(PILE_ANGLE, true), zIndex:25, transform: `${getStyles(PILE_ANGLE, true).transform} scale(${0.5 + Math.sqrt(engine.surfaceOre)*0.08})` }}>
+             <div className="bg-orange-600 w-8 h-6 rounded-t-xl" />
         </div>
 
       </div>
     </div>
   );
 
-  function getStyles(angle: number) {
+  function getStyles(angle: number, onSurface: boolean = false) {
       const p = getPosition(angle, SURFACE_LEVEL);
-      return { left: `calc(50% + ${p.x}px)`, top: `calc(50% + ${p.y}px)`, transform: `translate(-50%, -50%) rotate(${p.rot}deg)`, opacity: isVisible(p.rot)?1:0 };
+      const trans = onSurface ? `translate(-50%, -100%)` : `translate(-50%, -50%)`;
+      return { left: `calc(50% + ${p.x}px)`, top: `calc(50% + ${p.y}px)`, transform: `${trans} rotate(${p.rot}deg)`, opacity: isVisible(p.rot)?1:0 };
   }
 };
 

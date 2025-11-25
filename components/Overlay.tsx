@@ -33,16 +33,24 @@ const Overlay: React.FC<OverlayProps> = ({ engine, selectedSlotId, onCloseBuildM
   const taxRemaining = Math.max(0, Math.floor((engine.taxTimer - Date.now())/1000));
   const justPaid = (Date.now() - engine.lastTaxPaid) < 3000;
   
+  const currentPop = engine.units.filter(u => !UNIT_BASE_STATS[u.type].isTool).length;
+  const maxPop = engine.getMaxPopulation();
+
   return (
     <>
       {/* HEADER */}
       <div className="absolute top-0 w-full p-4 flex justify-between items-start z-50 pointer-events-none">
          <div className="flex gap-4 pointer-events-auto flex-wrap">
              <Badge icon={<Coins className="text-yellow-400" size={18}/>} label="Credits" value={`$${Math.floor(engine.credits).toLocaleString()}`} />
-             <div className={`bg-slate-900/90 border p-2 px-4 rounded-full flex gap-3 shadow-xl backdrop-blur transition-colors ${engine.taxDue ? 'border-red-500 animate-pulse' : justPaid ? 'border-yellow-400' : 'border-slate-700'}`}>
-                 <Clock className={engine.taxDue ? "text-red-500" : "text-gray-400"} size={18} />
-                 <div><div className="text-[10px] text-gray-500 font-bold">TAX</div><div className="text-lg font-mono text-white">${engine.taxAmount} <span className="text-xs">({Math.floor(taxRemaining/60)}:{taxRemaining%60})</span></div></div>
-             </div>
+             
+             {engine.taxStarted && (
+                 <div className={`bg-slate-900/90 border p-2 px-4 rounded-full flex gap-3 shadow-xl backdrop-blur transition-colors ${engine.taxDue ? 'border-red-500 animate-pulse' : justPaid ? 'border-yellow-400' : 'border-slate-700'}`}>
+                     <Clock className={engine.taxDue ? "text-red-500" : "text-gray-400"} size={18} />
+                     <div><div className="text-[10px] text-gray-500 font-bold">TAX</div><div className="text-lg font-mono text-white">${engine.taxAmount} <span className="text-xs">({Math.floor(taxRemaining/60)}:{taxRemaining%60})</span></div></div>
+                 </div>
+             )}
+
+             <Badge icon={<Users className="text-blue-400" size={18}/>} label="Pop" value={`${currentPop}/${maxPop}`} />
              <Badge icon={<ScrollText className="text-purple-400" size={18}/>} label="Permits" value={engine.environment.miningPermits} />
              <Badge icon={<Mountain className="text-orange-500" size={18}/>} label="Ore" value={`${Math.floor(engine.surfaceOre)} / ${Math.floor(engine.looseOreInMine)}`} />
              <Badge icon={<Pickaxe className="text-gray-400" size={18}/>} label="Depth" value={`${engine.mineDepth * 5}m`} />

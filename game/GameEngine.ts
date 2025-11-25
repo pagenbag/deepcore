@@ -33,9 +33,10 @@ export class GameEngine {
 
     // System
     lastTick: number = Date.now();
-    taxTimer: number = Date.now() + TAX_INTERVAL;
+    taxTimer: number = 0;
     taxAmount: number = TAX_INITIAL_AMOUNT;
     taxDue: boolean = false;
+    taxStarted: boolean = false;
     lastTaxPaid: number = 0;
     
     // Debug
@@ -54,8 +55,11 @@ export class GameEngine {
         this.units = [];
         this.activeModifiers = [];
         this.tunnels = JSON.parse(JSON.stringify(BASE_TUNNELS));
+        
+        // Tax Init
         this.taxAmount = TAX_INITIAL_AMOUNT;
-        this.taxTimer = Date.now() + TAX_INTERVAL;
+        this.taxTimer = 0; // Not started yet
+        this.taxStarted = false;
         this.taxDue = false;
 
         // Init Slots
@@ -81,14 +85,16 @@ export class GameEngine {
         this.lastTick = now;
 
         // Tax Logic
-        if (!this.taxDue && now >= this.taxTimer) this.taxDue = true;
-        if (this.taxDue && this.credits >= this.taxAmount) {
-            this.credits -= this.taxAmount;
-            this.taxDue = false;
-            this.taxAmount = Math.floor(this.taxAmount * TAX_SCALE);
-            this.taxTimer = now + TAX_INTERVAL;
-            this.lastTaxPaid = now;
-            this.environment.miningPermits++;
+        if (this.taxStarted) {
+            if (!this.taxDue && now >= this.taxTimer) this.taxDue = true;
+            if (this.taxDue && this.credits >= this.taxAmount) {
+                this.credits -= this.taxAmount;
+                this.taxDue = false;
+                this.taxAmount = Math.floor(this.taxAmount * TAX_SCALE);
+                this.taxTimer = now + TAX_INTERVAL;
+                this.lastTaxPaid = now;
+                this.environment.miningPermits++;
+            }
         }
 
         // Entities Update
@@ -166,6 +172,10 @@ export class GameEngine {
             newB.assignedWorkers = [];
             newB.occupants = [];
             newB.purchasedUpgrades = [];
+            
+            // START TAX SYSTEM
+            this.taxStarted = true;
+            this.taxTimer = Date.now() + TAX_INTERVAL;
         } else {
             newB.startConstruction(type);
         }

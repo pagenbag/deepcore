@@ -1,5 +1,5 @@
 
-import { BUILD_SPEED_BASE, DRILL_PRODUCTION_RATE, DRILL_WEIGHT_SPEED_PENALTY, ENERGY_DRAIN_RATE, ENERGY_RECHARGE_RATE, MINE_ANGLE, PILE_ANGLE, SURFACE_LEVEL, UNIT_BASE_STATS } from "../config";
+import { BUILD_SPEED_BASE, DRILL_PRODUCTION_RATE, DRILL_WEIGHT_SPEED_PENALTY, ENERGY_DRAIN_RATE, ENERGY_RECHARGE_RATE, MAX_PILE_CAPACITY, MINE_ANGLE, PILE_ANGLE, PILE_RESUME_THRESHOLD, SURFACE_LEVEL, UNIT_BASE_STATS } from "../config";
 import { Point, UnitState, UnitType } from "../types";
 import { GameEngine } from "./GameEngine";
 
@@ -220,6 +220,10 @@ export class Miner extends Unit {
                 break;
 
             case 'MOVING_TO_PILE':
+                if (engine.surfaceOre >= MAX_PILE_CAPACITY) {
+                    this.state = 'IDLE'; // Wait for pile to drain
+                    return;
+                }
                 if (this.moveTowards(PILE_ANGLE, SURFACE_LEVEL, dt, engine)) {
                     this.state = 'DEPOSITING';
                     this.progress = 0;
@@ -259,6 +263,9 @@ export class Miner extends Unit {
     }
 
     private findJob(engine: GameEngine) {
+        const isPileFull = engine.surfaceOre >= MAX_PILE_CAPACITY;
+        const pileOkToResume = engine.surfaceOre < PILE_RESUME_THRESHOLD;
+
         // 1. Build
         const buildJob = engine.buildings.find(b => (b.status === 'PENDING' || b.status === 'UNDER_CONSTRUCTION') && !b.assignedUnitId);
         if (buildJob) {
@@ -284,14 +291,20 @@ export class Miner extends Unit {
             return;
         }
 
-        // 4. Loose Ore
-        if (engine.looseOreInMine > 10) {
+        // 4. Loose Ore (Only if pile not full)
+        if (engine.looseOreInMine > 10 && !isPileFull) {
             this.state = 'PICKUP_LOOSE_ORE';
             return;
         }
 
-        // 5. Mine
-        this.state = 'MOVING_TO_MINE';
+        // 5. Mine (Only if pile not full)
+        // If we were paused (isPileFull), we wait until it drops below threshold to avoid rapid switching
+        if (!isPileFull || (this.state === 'IDLE' && pileOkToResume)) {
+             this.state = 'MOVING_TO_MINE';
+        } else {
+            // Nothing to do but chill
+            this.state = 'IDLE';
+        }
     }
 
     private moveToHome(dt: number, engine: GameEngine) {
@@ -414,6 +427,9 @@ export class Miner extends Unit {
                          this.carryingId = null;
                      }
                      this.state = 'MOVING_TO_HOME';
+                } else if (this.inventory > 0 && engine.surfaceOre >= MAX_PILE_CAPACITY) {
+                     // Pile full - wait here or go home? Go home to charge/wait
+                     this.state = 'MOVING_TO_HOME';
                 } else {
                      this.state = 'MOVING_TO_PILE';
                 }
@@ -452,7 +468,5 @@ export class Drill extends Unit {
 export class Carrier extends Unit {
     update(dt: number, engine: GameEngine) {
         // Simplified Logic for Carrier (Future expansion)
-        // For now, same as Miner basically but simpler job queue
-        // Reusing Miner for now since logic is 90% shared
     }
 }

@@ -61,6 +61,9 @@ export const TAX_INTERVAL = 120 * 1000;
 export const TAX_INITIAL_AMOUNT = 200;
 export const TAX_SCALE = 1.5;
 
+export const MAX_PILE_CAPACITY = 1000;
+export const PILE_RESUME_THRESHOLD = 800;
+
 // Building Slots Layout
 export const generateSlots = () => {
     const slots = [];
@@ -79,9 +82,6 @@ export const generateSlots = () => {
     }
 
     // Convert last slot to launchpad slot (visually distant)
-    // We want the one closest to 180 ideally, or just the last one in the list
-    // The loop goes 50 -> 340. 
-    // 180 is roughly in the middle. Let's explicitly pick the one closest to 180 for launchpad.
     let bestSlot = slots[0];
     let minDiff = 360;
     slots.forEach(s => {
