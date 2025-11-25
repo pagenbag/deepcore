@@ -1,5 +1,7 @@
 
-import { UnitType, BuildingType, CRUSHER_ANGLE } from './types';
+import { UnitType, BuildingType } from './types';
+
+export const CRUSHER_ANGLE = 25;
 
 export const TICK_RATE = 1000 / 60; // 60 FPS target logic
 
@@ -18,6 +20,7 @@ export const BUILDING_COSTS: Record<BuildingType, { baseCost: number; scale: num
   [BuildingType.CRUSHER]: { baseCost: 1500, scale: 1.5, label: 'Ore Crusher', desc: 'Passive ore processing' },
   [BuildingType.TRAINING]: { baseCost: 2500, scale: 2.0, label: 'Training Center', desc: 'Upgrade unit stats globally' },
   [BuildingType.REACTOR]: { baseCost: 5000, scale: 2.5, label: 'Core Reactor', desc: 'Speed up all units' },
+  [BuildingType.LAUNCHPAD]: { baseCost: 50000, scale: 1.0, label: 'Launchpad', desc: 'Prepare for departure (Prestige)' },
 };
 
 // Which units can be recruited at which building
@@ -27,6 +30,7 @@ export const UNIT_UNLOCKS: Record<BuildingType, UnitType[]> = {
   [BuildingType.CRUSHER]: [],
   [BuildingType.TRAINING]: [],
   [BuildingType.REACTOR]: [],
+  [BuildingType.LAUNCHPAD]: [],
 };
 
 // Definitions for specific building upgrades
@@ -56,7 +60,8 @@ export const BUILDING_UPGRADES: Record<BuildingType, BuildingUpgrade[]> = {
         { id: 'train_cap_2', label: 'Anti-Grav Pallets', cost: 12000, desc: '+20% Carry Capacity for all units.', effect: { statBoost: 'capacity' } },
     ],
     [BuildingType.WORKSHOP]: [],
-    [BuildingType.REACTOR]: []
+    [BuildingType.REACTOR]: [],
+    [BuildingType.LAUNCHPAD]: []
 };
 
 // Tunnel Config

@@ -7,98 +7,83 @@ export enum UnitType {
 }
 
 export enum BuildingType {
-  DORMITORY = 'DORMITORY', // Increases max unit count
-  WORKSHOP = 'WORKSHOP', // Unlocks better units
-  CRUSHER = 'CRUSHER', // Passive ore processing (Auxiliary)
-  REACTOR = 'REACTOR', // Global speed boost
-  TRAINING = 'TRAINING', // Unit stat upgrades
+  DORMITORY = 'DORMITORY',
+  WORKSHOP = 'WORKSHOP',
+  CRUSHER = 'CRUSHER',
+  REACTOR = 'REACTOR',
+  TRAINING = 'TRAINING',
+  LAUNCHPAD = 'LAUNCHPAD',
 }
 
-export type BuildingStatus = 'EMPTY' | 'PENDING' | 'UNDER_CONSTRUCTION' | 'COMPLETED';
+export type UnitState = 
+  | 'IDLE' 
+  | 'MOVING_TO_MINE' | 'ENTERING_MINE' | 'MINING' | 'EXITING_MINE' 
+  | 'MOVING_TO_PILE' | 'DEPOSITING' 
+  | 'MOVING_TO_HOME' | 'CHARGING' 
+  | 'MOVING_TO_BUILD' | 'BUILDING' 
+  | 'MOVING_TO_DRILL' | 'CARRYING_DRILL_TO_MINE' | 'OPERATING_DRILL' 
+  | 'PICKUP_LOOSE_ORE' 
+  | 'MOVING_TO_WORK' | 'WORKING_IN_BUILDING';
 
-export interface Entity {
+export interface Point {
+  x: number;
+  y: number;
+  angle: number;
+  radius: number;
+}
+
+export interface TunnelDef {
+    id: number;
+    depthPx: number; // Vertical depth (0-300 scale)
+    direction: -1 | 1; // -1 Left, 1 Right
+    maxWidth: number; // Max visual width
+    currentLength: number; // Runtime state
+}
+
+// Upgrade System Types
+export type ModifierType = 'ADD_FLAT' | 'MULTIPLY_PERCENT';
+export type StatTarget = 'SPEED' | 'CAPACITY' | 'ENERGY' | 'POWER' | 'MAX_WORKERS' | 'MAX_POPULATION';
+
+export interface Modifier {
+  targetType: 'UNIT' | 'BUILDING' | 'GLOBAL';
+  targetId?: string; // Specific UnitType or BuildingType enum
+  stat: StatTarget;
+  type: ModifierType;
+  value: number;
+}
+
+export interface Environment {
+  gravity: number; // Affects movement speed (default 1)
+  oreValue: number; // Credits per ore (default 1)
+  oreHardness: number; // Mining duration multiplier (default 1)
+  startingCredits: number;
+  miningPermits: number;
+  prestigeCount: number;
+}
+
+// Visual/Render Props (extracted from Classes for React components)
+export interface RenderableUnit {
   id: string;
   type: UnitType;
-  // Updated State Machine
-  state: 'IDLE' | 
-         'MOVING_TO_MINE' | 'ENTERING_MINE' | 'MINING' | 'EXITING_MINE' | 
-         'MOVING_TO_PILE' | 'DEPOSITING' | 
-         'MOVING_TO_HOME' | 'CHARGING' | 
-         'MOVING_TO_BUILD' | 'BUILDING' |
-         'MOVING_TO_DRILL' | 'CARRYING_DRILL_TO_MINE' | 'OPERATING_DRILL' | 
-         'PICKUP_LOOSE_ORE' | 
-         'MOVING_TO_WORK' | 'WORKING_IN_BUILDING';
-  
-  position: { x: number; y: number; angle: number; radius: number };
-  targetDepth: number;
-  targetTunnelIdx: number | null; // null/-1 for main shaft bottom, 0+ for specific tunnel
-  inventory: number;
-  maxCapacity: number;
+  state: UnitState;
+  position: Point;
   energy: number;
   maxEnergy: number;
-  speed: number;
-  miningPower: number;
-  progress: number; // 0 to 1 for current action
-  
-  // New Logic Props
-  homeBuildingId: number | null; // ID of the habitat this unit belongs to
-  carryingId: string | null; // ID of the tool/drill this unit is carrying
-  carriedBy: string | null; // ID of the unit carrying this entity (if it's a drill)
-  workingAtBuildingId: number | null; // ID of building unit is assigned to work at
+  inventory: number;
+  carryingId: string | null;
+  carriedBy: string | null;
 }
 
-export interface BuildingSlot {
+export interface RenderableBuilding {
   id: number;
-  angle: number; // Position on asteroid in degrees
+  angle: number;
   type: BuildingType | null;
+  status: 'EMPTY' | 'PENDING' | 'UNDER_CONSTRUCTION' | 'COMPLETED';
   level: number;
-  unlocked: boolean;
-  status: BuildingStatus;
-  constructionProgress: number; // 0 to 1
-  assignedUnitId: string | null;
-  occupants: string[]; // IDs of units that live here
-  
-  // Worker Logic
-  maxWorkers: number; // Capacity based on upgrades
-  assignedWorkers: string[]; // IDs of units working here
-  requestedWorkers: number; // User set target (0 to maxWorkers)
-  upgrades: string[]; // IDs of purchased upgrades
+  constructionProgress: number;
+  occupants: number; // count
+  assignedWorkers: number; // count
+  requestedWorkers: number;
+  maxWorkers: number;
+  isLaunchpadSlot: boolean;
 }
-
-export interface GameState {
-  credits: number;
-  miningPermits: number; // Meta progression currency
-  surfaceOre: number; // Ore sitting at the pile (Surface)
-  looseOreInMine: number; // Ore sitting at the bottom of the mine (needs hauling)
-  totalMined: number; // Used to calculate depth
-  mineDepth: number; // Visual and logic depth (meters)
-  tunnelLengths: number[]; // Current length of each horizontal tunnel
-  maxPopulation: number;
-  units: Entity[];
-  buildings: BuildingSlot[];
-  lastTick: number;
-  rotation: number; // Visual rotation of the asteroid
-  targetRotation: number | null; // If set, asteroid auto-rotates to this angle
-  
-  // Tax System
-  taxTimer: number; // Timestamp when next tax is due
-  taxAmount: number; // Current tax amount required
-  taxDue: boolean; // Is payment pending (blocking spending)
-  lastTaxPaid: number; // Timestamp of last payment for visuals
-
-  // Debug
-  globalMultiplier: number;
-  
-  // Global Upgrades
-  unitUpgrades: {
-      speedLevel: number;
-      capacityLevel: number;
-      energyLevel: number;
-  };
-}
-
-export const ASTEROID_RADIUS = 400; // Radius in pixels
-export const SURFACE_LEVEL = ASTEROID_RADIUS;
-export const MINE_ANGLE = 0; // Top center
-export const PILE_ANGLE = 12; // Between Mine and Crusher
-export const CRUSHER_ANGLE = 25; // Where the Crusher/Refinery sits
