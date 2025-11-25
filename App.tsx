@@ -59,7 +59,6 @@ const App: React.FC = () => {
         tickVersion={tick}
         selectedSlotId={selectedSlot}
         onCloseBuildMenu={() => { setSelectedSlot(null); setTargetRotation(null); }}
-        onToggleDebug={() => { engineRef.current.globalMultiplier = engineRef.current.globalMultiplier > 1 ? 1 : 10; }}
       />
     </div>
   );

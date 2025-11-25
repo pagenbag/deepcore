@@ -4,18 +4,19 @@ import { GameEngine } from '../game/GameEngine';
 import { BuildingType, UnitType } from '../types';
 import { BUILDING_CONFIG, UNIT_BASE_STATS, UNIT_UNLOCKS } from '../config';
 import { UPGRADE_CATALOG } from '../game/Upgrades';
-import { Coins, Clock, ScrollText, Mountain, Users, Pickaxe, X, Hammer, UserCog } from 'lucide-react';
+import { Coins, Clock, ScrollText, Mountain, Users, Pickaxe, X, Hammer, UserCog, Zap } from 'lucide-react';
 
 interface OverlayProps {
   engine: GameEngine;
   tickVersion: number;
   selectedSlotId: number | null;
   onCloseBuildMenu: () => void;
-  onToggleDebug: () => void;
+  onToggleDebug?: () => void;
 }
 
-const Overlay: React.FC<OverlayProps> = ({ engine, selectedSlotId, onCloseBuildMenu, onToggleDebug }) => {
+const Overlay: React.FC<OverlayProps> = ({ engine, selectedSlotId, onCloseBuildMenu }) => {
   const [activeTab, setActiveTab] = useState<'RECRUIT' | 'UPGRADES' | 'WORKERS' | 'ACTIONS'>('RECRUIT');
+  const [showDebug, setShowDebug] = useState(false);
 
   const selectedSlot = engine.buildings.find(b => b.id === selectedSlotId);
   const isBuildingMenu = selectedSlot && selectedSlot.type !== null;
@@ -46,17 +47,28 @@ const Overlay: React.FC<OverlayProps> = ({ engine, selectedSlotId, onCloseBuildM
              <Badge icon={<Mountain className="text-orange-500" size={18}/>} label="Ore" value={`${Math.floor(engine.surfaceOre)} / ${Math.floor(engine.looseOreInMine)}`} />
              <Badge icon={<Pickaxe className="text-gray-400" size={18}/>} label="Depth" value={`${engine.mineDepth * 5}m`} />
          </div>
-         <button onClick={onToggleDebug} className="pointer-events-auto bg-slate-800 text-xs px-2 py-1 rounded text-gray-400">DEBUG</button>
+         <button onClick={() => setShowDebug(!showDebug)} className="pointer-events-auto bg-slate-800 text-xs px-2 py-1 rounded text-gray-400 hover:text-white">DEBUG</button>
       </div>
+      
+      {/* DEBUG PANEL */}
+      {showDebug && (
+        <div className="absolute top-16 right-4 z-50 bg-slate-900 border border-slate-700 p-4 rounded shadow-xl flex flex-col gap-2 pointer-events-auto">
+            <h3 className="text-xs font-bold text-gray-500">DEBUG TOOLS</h3>
+            <button onClick={() => engine.addCredits(1000)} className="px-3 py-2 bg-green-900/50 hover:bg-green-800 rounded text-xs text-green-200 border border-green-700">+$1,000 Credits</button>
+            <button onClick={() => engine.globalMultiplier = engine.globalMultiplier === 1 ? 5 : 1} className="px-3 py-2 bg-blue-900/50 hover:bg-blue-800 rounded text-xs text-blue-200 border border-blue-700 flex justify-between gap-4">
+                <span>Toggle Speed</span> <span className="font-bold">{engine.globalMultiplier}x</span>
+            </button>
+        </div>
+      )}
 
       {/* BOTTOM PANEL */}
       {selectedSlotId !== null && (
           <div className="absolute bottom-0 w-full p-6 flex justify-center z-50 pointer-events-none">
               <div className="bg-slate-900/95 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-4xl p-6 pointer-events-auto relative">
-                  <button onClick={onCloseBuildMenu} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-white"><X size={24}/></button>
+                  <button onClick={onCloseBuildMenu} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-white z-50"><X size={24}/></button>
                   
                   {/* Tax Lock */}
-                  {engine.taxDue && <div className="absolute inset-0 bg-slate-950/90 z-10 flex items-center justify-center flex-col text-red-500 font-bold text-xl"><div>OPERATIONS SUSPENDED</div><div className="text-sm text-gray-400">Pay Tax to Resume</div></div>}
+                  {engine.taxDue && <div className="absolute inset-0 bg-slate-950/90 z-40 flex items-center justify-center flex-col text-red-500 font-bold text-xl rounded-2xl"><div>OPERATIONS SUSPENDED</div><div className="text-sm text-gray-400">Pay Tax to Resume</div></div>}
 
                   {/* BUILD MENU */}
                   {!isBuildingMenu && (
@@ -68,7 +80,7 @@ const Overlay: React.FC<OverlayProps> = ({ engine, selectedSlotId, onCloseBuildM
                                 if (t !== BuildingType.LAUNCHPAD && selectedSlot?.isLaunchpadSlot) return null; // Launchpad slot only builds launchpad
                                 
                                 const conf = BUILDING_CONFIG[t];
-                                const cost = conf.baseCost; // Simplified logic for demo
+                                const cost = conf.baseCost; 
                                 return (
                                     <button key={t} onClick={() => engine.constructBuilding(selectedSlotId, t)} disabled={engine.credits < cost}
                                         className={`p-4 rounded border text-left flex flex-col ${engine.credits >= cost ? 'bg-slate-800 hover:bg-slate-700 border-slate-600' : 'bg-slate-950 opacity-50'}`}>

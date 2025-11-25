@@ -26,7 +26,7 @@ export class GameEngine {
         gravity: 1,
         oreValue: 1,
         oreHardness: 1,
-        startingCredits: 110,
+        startingCredits: 10,
         miningPermits: 0,
         prestigeCount: 0
     };
@@ -139,8 +139,11 @@ export class GameEngine {
         const slot = this.buildings.find(b => b.id === slotId);
         if (!slot) return;
 
-        const isFree = type === BuildingType.DORMITORY && !this.buildings.some(b => b.type === BuildingType.DORMITORY);
-        const cost = isFree ? 0 : BUILDING_CONFIG[type].baseCost;
+        // Rule: First Habitat is Free and Instant to bootstrap the colony
+        const isFirstHabitat = type === BuildingType.DORMITORY && !this.buildings.some(b => b.type === BuildingType.DORMITORY);
+
+        let cost = BUILDING_CONFIG[type].baseCost;
+        if (isFirstHabitat) cost = 0;
         
         if (this.credits < cost) return;
         this.credits -= cost;
@@ -155,8 +158,17 @@ export class GameEngine {
         const idx = this.buildings.findIndex(b => b.id === slotId);
         this.buildings[idx] = newB;
 
-        newB.startConstruction(type);
-        if (isFree) newB.completeConstruction();
+        if (isFirstHabitat) {
+            newB.type = type;
+            newB.status = 'COMPLETED';
+            newB.level = 1;
+            // Initialize arrays if not done by constructor
+            newB.assignedWorkers = [];
+            newB.occupants = [];
+            newB.purchasedUpgrades = [];
+        } else {
+            newB.startConstruction(type);
+        }
     }
 
     buyUpgrade(slotId: number, upgradeId: string) {

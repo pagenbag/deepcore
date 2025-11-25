@@ -150,19 +150,19 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ engine, rotation, setRo
                     Label = <div className="bg-slate-800 text-[9px] px-2 rounded text-slate-300 mt-1">CRUSHER</div>;
                  } else if (b.type === BuildingType.WORKSHOP) {
                     Visual = <div className="w-12 h-10 bg-slate-700 relative"><div className="absolute -top-4 w-0 h-0 border-l-[24px] border-l-transparent border-r-[24px] border-r-transparent border-b-[16px] border-b-slate-700"></div></div>;
-                    Label = <div className="bg-purple-900/80 text-[9px] px-1 rounded text-purple-200 mt-1">LAB</div>;
+                    Label = <div className="bg-purple-900/80 text-[9px] px-1 rounded text-purple-200 mt-1 whitespace-nowrap">LAB</div>;
                  } else if (b.type === BuildingType.LAUNCHPAD) {
                     Visual = <div className="w-16 h-20 bg-gray-200 relative"><div className="w-full h-full bg-red-600 clip-path-polygon-[50%_0,100%_100%,0_100%]"></div></div>;
                     Label = <div className="bg-red-600 text-[9px] px-1 rounded text-white mt-1 font-bold">LAUNCHPAD</div>;
                  } else {
                      Visual = <div className="w-12 h-10 bg-gray-700"></div>;
-                     Label = <div className="bg-gray-800 text-[9px] px-1 rounded text-white mt-1">{b.type}</div>;
+                     Label = <div className="bg-gray-800 text-[9px] px-1 rounded text-white mt-1 whitespace-nowrap">{b.type}</div>;
                  }
              }
 
              return (
                  <div key={b.id} onClick={(e)=>{e.stopPropagation(); onSelectSlot(b.id)}} onPointerEnter={()=>setHoveredSlotId(b.id)} onPointerLeave={()=>setHoveredSlotId(null)}
-                      className="absolute flex flex-col items-center justify-end cursor-pointer hover:scale-105 transition-transform"
+                      className="absolute flex flex-col items-center justify-end cursor-pointer hover:scale-105"
                       style={{ left: `calc(50% + ${pos.x}px)`, top: `calc(50% + ${pos.y}px)`, transform: `translate(-50%, -50%) rotate(${pos.rot}deg)`, zIndex: 30, opacity: visible?1:0, pointerEvents: visible?'auto':'none' }}>
                      <div className="origin-bottom">{Visual}</div>
                      {Label}
@@ -192,6 +192,9 @@ const AsteroidCanvas: React.FC<AsteroidCanvasProps> = ({ engine, rotation, setRo
                 <div key={u.id} className="absolute pointer-events-none transition-opacity"
                      style={{ left: `calc(50% + ${pos.x}px)`, top: `calc(50% + ${pos.y}px)`, transform: `translate(-50%, -50%) rotate(${pos.rot}deg)`, zIndex: 40, opacity: visible?1:0, filter }}>
                     {Shape}
+                    {/* Carried Ore */}
+                    {u.inventory > 0 && <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-2 h-2 bg-orange-500 rounded-sm border border-orange-800" />}
+                    {/* Carried Tool */}
                     {u.carryingId && <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-4 h-4 bg-orange-700 clip-path-polygon-[0_0,100%_0,50%_100%]" />}
                     {u.state === 'CHARGING' && <BatteryWarning className="absolute -top-5 text-green-400" size={12} />}
                 </div>
